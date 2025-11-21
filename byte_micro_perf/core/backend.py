@@ -9,6 +9,7 @@ import traceback
 from datetime import timedelta
 from abc import ABC, abstractmethod
 from typing import List
+import habana_frameworks.torch as ht
 
 FILE_DIR = pathlib.Path(__file__).parent.absolute()
 MICRO_PERF_DIR = FILE_DIR.parent
