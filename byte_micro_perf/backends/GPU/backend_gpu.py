@@ -72,21 +72,34 @@ class BackendGPU(Backend):
 
     def get_backend_env(self):
         __torch_version = torch.__version__
-        __cuda_version = torch.version.cuda
+        __torch_device_type = ""
+        __torch_device_version = ""
         __driver_version = ''
-        nvidia_smi_output = subprocess.run(
-            ['nvidia-smi', '-q', '-i', '0'], 
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        for line in nvidia_smi_output.stdout.split('\n'):
-            if 'Driver Version' in line:
-                __driver_version = line.split(':')[1].strip()
-                break
+        __smi_cmd = []
+
+        if torch.version.cuda:
+            __torch_device_type = "torch_cuda"
+            __torch_device_version = torch.version.cuda
+            __smi_cmd = ['nvidia-smi', '-q', '-i', '0']
+        elif torch.version.hip:
+            __torch_device_type = "torch_hip"
+            __torch_device_version = torch.version.hip
+            __smi_cmd = ['rocm-smi', '--showdriverversion']
+
+        if __smi_cmd:
+            smi_output = subprocess.run(
+                __smi_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            for line in smi_output.stdout.split('\n'):
+                if 'driver version' in line.lower():
+                    __driver_version = line.split(':')[1].strip()
+                    break
         return {
             "torch": __torch_version,
-            "torch_cuda": __cuda_version,
+            __torch_device_type: __torch_device_version,
             "driver": __driver_version,
         }
 
