@@ -1,4 +1,6 @@
 TORCH_PROFILER_RAW_DATA/
 profiling/
 reports/
+reports_replay
 kernel_meta/
+temp

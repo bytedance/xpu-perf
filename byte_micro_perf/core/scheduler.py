@@ -7,9 +7,11 @@ import signal
 import pathlib
 import traceback
 import prettytable
+from datetime import timedelta
 from itertools import combinations
 
 from typing import List, Dict, Any
+import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
@@ -24,7 +26,10 @@ from core.creators import create_backend_instance, get_op_info, create_op_instan
 
 class Scheduler:
     def __init__(self, args):
+        # store subprocesses
         self._subprocesses = []
+
+        # process signals
         def signal_handler(signum, frame):
             logger.info(f"Received signal {signum}, exiting...")
             self.__clean_subprocess()
@@ -39,18 +44,11 @@ class Scheduler:
         self.profiling = not args.disable_profiling
         self.report_dir = args.report_dir
 
-
         # create backend instance
         self.backend = create_backend_instance(self.backend_type)
 
         self.backend.node_world_size = args.node_world_size
         self.backend.node_rank = args.node_rank
-
-        self.backend.numa_world_size = args.numa_world_size
-        self.backend.numa_rank = args.numa_rank
-
-        self.backend.all_process_size = args.all_process_size
-        self.backend.all_process_rank = args.all_process_rank
 
         # for example, "NVIDIA A800-SXM4-80GB"
         self.backend.device_name = self.backend.get_device_name()
@@ -74,8 +72,62 @@ class Scheduler:
         if self.ori_target_device_count == 0:
             raise RuntimeError("no valid device")
 
+
+        # check process num and device num
+        self.backend.numa_world_size = args.numa_world_size
+        self.backend.numa_rank = args.numa_rank
+        if args.numa_world_size > self.ori_target_device_count:
+            self.backend.numa_world_size = self.ori_target_device_count
+            # valid numa process
+            if args.numa_rank < self.ori_target_device_count:
+                self.backend.numa_rank = args.numa_rank
+            else:
+                raise RuntimeError("redundant numa process")
+            
+        
+        self.backend.all_process_size = self.backend.node_world_size * self.backend.numa_world_size
+        self.backend.all_process_rank = self.backend.node_rank * self.backend.numa_world_size + self.backend.numa_rank
+
+
+        if self.backend.all_process_size > 1:
+            # init gloo dist
+            os.environ['MASTER_PORT'] = os.environ['GLOO_PORT']
+            try:
+                dist.init_process_group(
+                    backend="gloo", 
+                    world_size=self.backend.all_process_size,
+                    rank=self.backend.all_process_rank, 
+                    timeout=timedelta(seconds=1800)
+                )
+                data = torch.ones(1)
+                dist.all_reduce(data)
+            except Exception as e:
+                traceback.print_exc()
+                sys.exit(1)
+
         # test cases
         self.test_cases = []
+
+
+    def __clean_subprocess(self):
+        for process in self._subprocesses:
+            if process.is_alive():
+                pid = process.pid
+                if pid is not None:
+                    os.kill(pid, signal.SIGTERM)
+        self._subprocesses.clear()
+
+    def __del__(self):
+        self.__clean_subprocess()
+
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
+    def sync(self):
+        if dist.is_initialized():
+            dist.barrier()
+
 
 
 
@@ -216,18 +268,6 @@ class Scheduler:
         return True
 
 
-    def __del__(self):
-        self.__clean_subprocess()
-
-
-    def __clean_subprocess(self):
-        for process in self._subprocesses:
-            if process.is_alive():
-                pid = process.pid
-                if pid is not None:
-                    os.kill(pid, signal.SIGTERM)
-        self._subprocesses.clear()
-
 
 
     def run(self):
@@ -254,7 +294,6 @@ class Scheduler:
         logger.info("all ranks are ready and listening, init done")
 
         result_list = []
-
 
 
         if self.test_mode == "single":
@@ -365,8 +404,8 @@ class Scheduler:
                                 profiling=self.profiling
                             )
                         except:
-                            pass
-
+                            print(f"op {self.op_name} provider {op_provider} bench failed, error msg: {e}")
+                            continue
 
                         if target_dict:
                             arguments_str = json.dumps(test_case)
@@ -404,6 +443,11 @@ class Scheduler:
                 print(f"true_world_size: {true_world_size}, true_rank: {true_rank}, true_device_index: {true_device_index}")
                 backend.set_device(true_device_index)
 
+                os.environ["RANK"] = str(true_rank)
+                os.environ["GROUP_RANK"] = str(backend.all_process_rank // backend.numa_world_size)
+                os.environ["LOCAL_RANK"] = str(device_true_rank)
+                os.environ["LOCAL_WORLD_SIZE"] = str(device_world_size)
+
                 # init dist env on all nodes
                 dist_module = backend.get_dist_module()
                 backend.initialize_ccl(true_rank, true_world_size)                
@@ -430,6 +474,11 @@ class Scheduler:
                                 "result": test_case
                             }
                         )
+                    else:
+                        exchange_area[0] = {
+                            "rank": true_rank, 
+                            "result": test_case
+                        }
                     sorted_exchange_area = sorted(exchange_area, key=lambda x: x["rank"])
 
                     test_case = sorted_exchange_area[0]["result"]
@@ -468,6 +517,11 @@ class Scheduler:
                                     "result": op_instance is not None,
                                 }
                             )
+                        else:
+                            exchange_area[0] = {
+                                "rank": true_rank,
+                                "result": op_instance is not None,
+                            }
                         sorted_exchange_area = sorted(exchange_area, key=lambda x: x["rank"])
                         if not all([item["result"] for item in sorted_exchange_area[:world_size]]):
                             continue
@@ -496,6 +550,12 @@ class Scheduler:
                                     "env_dict": env_dict,
                                 }
                             )
+                        else:
+                            exchange_area[0] = {
+                                "rank": true_rank, 
+                                "target_dict": target_dict,
+                                "env_dict": env_dict,
+                            }
                         sorted_exchange_area = sorted(exchange_area, key=lambda x: x["rank"])
                         target_dict_list = [item["target_dict"] for item in sorted_exchange_area]
                         env_dict_list = [item["env_dict"] for item in sorted_exchange_area]
@@ -545,6 +605,11 @@ class Scheduler:
                 print(f"true_world_size: {true_world_size}, true_rank: {true_rank}, true_device_index: {true_device_index}")
                 backend.set_device(true_device_index)
 
+                os.environ["RANK"] = str(true_rank)
+                os.environ["GROUP_RANK"] = str(backend.all_process_rank // backend.numa_world_size)
+                os.environ["LOCAL_RANK"] = str(device_true_rank)
+                os.environ["LOCAL_WORLD_SIZE"] = str(device_world_size)
+
                 # init dist env on each node
                 dist_module = backend.get_dist_module()
                 backend.initialize_ccl(true_rank, true_world_size) 
@@ -568,6 +633,11 @@ class Scheduler:
                                 "result": test_case
                             }
                         )
+                    else:
+                        exchange_area[0] = {
+                            "rank": true_rank, 
+                            "result": test_case
+                        }
                     sorted_exchange_area = sorted(exchange_area, key=lambda x: x["rank"])
 
                     test_case = sorted_exchange_area[0]["result"]
@@ -605,6 +675,11 @@ class Scheduler:
                                     "result": op_instance is not None,
                                 }
                             )
+                        else:
+                            exchange_area[0] = {
+                                "rank": true_rank,
+                                "result": op_instance is not None,
+                            }
                         sorted_exchange_area = sorted(exchange_area, key=lambda x: x["rank"])
                         if sum([1 if item["result"] else 0 for item in sorted_exchange_area]) != target_device_num:
                             continue
@@ -633,6 +708,12 @@ class Scheduler:
                                     "env_dict": env_dict
                                 }
                             )
+                        else:
+                            exchange_area[0] = {
+                                "rank": true_rank,
+                                "target_dict": target_dict,
+                                "env_dict": env_dict
+                            }
                         sorted_exchange_area = sorted(exchange_area, key=lambda x: x["rank"])
                         target_dict_list = [item["target_dict"] for item in sorted_exchange_area]
                         env_dict_list = [item["env_dict"] for item in sorted_exchange_area]
@@ -662,9 +743,6 @@ class Scheduler:
                         }, block=False)
                 backend.destroy_process_group()
                         
-
-
-
         except Exception as e:
             traceback.print_exc()
             sys.exit(1)

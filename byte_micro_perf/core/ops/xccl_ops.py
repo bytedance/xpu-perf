@@ -8,7 +8,7 @@ sys.path.insert(
     str(pathlib.Path(__file__).absolute().parents[2])
 )
 
-from core.utils import OpTensorInfo, calc_tensor_size
+from core.utils import OpTensorInfo, calc_tensor_size, get_torch_dtype
 from core.op import BasicOp
 
 
@@ -17,14 +17,9 @@ class AllReduceOp(BasicOp):
         super().__init__(args_dict, backend, *args, **kwargs)
 
     def prepare(self):
-        self.arg_type = self.args_dict["arg_type"]
+        self.arg_type = self.args_dict.get("arg_type", "default")
         if not self.arg_type in ["default", "llm"]:
-            raise NotImplementedError
-
-        self.dtype = self.args_dict["dtype"]
-        if not self.dtype in ["float32", "float16", "bfloat16"]:
-            raise NotImplementedError
-        self.torch_dtype = getattr(torch, self.dtype)
+            raise ValueError(f"arg_type must be default or llm, but got {self.arg_type}")
 
         self.world_size = self.args_dict["world_size"]
         if self.arg_type == "default":
@@ -34,14 +29,19 @@ class AllReduceOp(BasicOp):
             self.batch_size = self.args_dict["num_tokens"]
             self.dim_size = self.args_dict["hidden_size"]
 
-        # [world_size, batch_size // world_size, dim_size] --> 
-        # [world_size, batch_size // world_size, dim_size]
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["float32", "float16", "bfloat16"]:
+            raise ValueError(f"dtype must be float32, float16 or bfloat16, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
+
+        # [world_size,  batch_size * dim_size // world_size] --> 
+        # [world_size,  batch_size * dim_size // world_size]
         self.input_tensor_info = {
             "src": OpTensorInfo(
                 shape=[self.batch_size * self.dim_size],
                 dtype=self.torch_dtype,
                 device=self.backend.get_torch_device_name(),
-                creator=torch.randn
+                creator=torch.empty
             )
         }
         self.output_tensor_info = {
@@ -49,19 +49,20 @@ class AllReduceOp(BasicOp):
                 shape=[self.batch_size * self.dim_size],
                 dtype=self.torch_dtype,
                 device=self.backend.get_torch_device_name(),
-                creator=torch.randn
+                creator=torch.empty
             )
         }
 
-        # inplace operation
         self.input_tensor_size = sum([
             calc_tensor_size(info) for info in self.input_tensor_info.values()
         ])
-        self.output_tensor_size = 0
+        self.output_tensor_size = sum([
+            calc_tensor_size(info) for info in self.output_tensor_info.values()
+        ])
         self.tensor_size = self.input_tensor_size + self.output_tensor_size
 
         self.read_bytes = self.input_tensor_size
-        self.write_bytes = self.input_tensor_size
+        self.write_bytes = self.output_tensor_size
         self.io_bytes = self.read_bytes + self.write_bytes
 
         self.algo_size = self.input_tensor_size
@@ -79,6 +80,7 @@ class AllReduceOp(BasicOp):
 
     def all_reduce_run(self, tensor_mapping):
         src = tensor_mapping["src"]
+
         dist_module = self.backend.get_dist_module()
         dist_module.all_reduce(
             src, 
@@ -90,21 +92,14 @@ class AllReduceOp(BasicOp):
 
 
 
-
-
 class ReduceScatterOp(BasicOp):
     def __init__(self, args_dict, backend, *args, **kwargs):
         super().__init__(args_dict, backend, *args, **kwargs)
 
     def prepare(self):
-        self.arg_type = self.args_dict["arg_type"]
+        self.arg_type = self.args_dict.get("arg_type", "default")
         if not self.arg_type in ["default", "llm"]:
-            raise NotImplementedError       
-
-        self.dtype = self.args_dict["dtype"]
-        if not self.dtype in ["float32", "float16", "bfloat16"]:
-            raise NotImplementedError
-        self.torch_dtype = getattr(torch, self.dtype)
+            raise ValueError(f"arg_type must be default or llm, but got {self.arg_type}")
 
         self.world_size = self.args_dict["world_size"]
         if self.arg_type == "default":
@@ -114,14 +109,19 @@ class ReduceScatterOp(BasicOp):
             self.batch_size = self.args_dict["num_tokens"]
             self.dim_size = self.args_dict["hidden_size"]
 
-        # [world_size, batch_size // world_size, dim_size] --> 
-        # [1, batch_size // world_size, dim_size]
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["float32", "float16", "bfloat16"]:
+            raise ValueError(f"dtype must be float32, float16 or bfloat16, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
+
+        # [world_size,  batch_size * dim_size // world_size] --> 
+        # [1,           batch_size * dim_size // world_size]
         self.input_tensor_info = {
             "src": OpTensorInfo(
                 shape=[self.batch_size * self.dim_size],
                 dtype=self.torch_dtype,
                 device=self.backend.get_torch_device_name(),
-                creator=torch.randn
+                creator=torch.empty
             )
         }
         self.output_tensor_info = {
@@ -129,7 +129,7 @@ class ReduceScatterOp(BasicOp):
                 shape=[self.batch_size * self.dim_size // self.world_size],
                 dtype=self.torch_dtype,
                 device=self.backend.get_torch_device_name(),
-                creator=torch.randn
+                creator=torch.empty
             )
         }
 
@@ -161,6 +161,7 @@ class ReduceScatterOp(BasicOp):
     def reduce_scatter_run(self, tensor_mapping):
         src = tensor_mapping["src"]
         dst = tensor_mapping["dst"]
+
         dist_module = self.backend.get_dist_module()
         dist_module.reduce_scatter_tensor(
             dst, src, 
@@ -178,15 +179,10 @@ class AllGatherOp(BasicOp):
         super().__init__(args_dict, backend, *args, **kwargs)
 
     def prepare(self):
-        self.arg_type = self.args_dict["arg_type"]
+        self.arg_type = self.args_dict.get("arg_type", "default")
         if not self.arg_type in ["default", "llm"]:
-            raise NotImplementedError
+            raise ValueError(f"arg_type must be default or llm, but got {self.arg_type}")
 
-        self.dtype = self.args_dict["dtype"]
-        if not self.dtype in ["float32", "float16", "bfloat16", "int8"]:
-            raise NotImplementedError
-        self.torch_dtype = getattr(torch, self.dtype)
-        
         self.world_size = self.args_dict["world_size"]
         if self.arg_type == "default":
             self.batch_size = self.args_dict["batch_size"]
@@ -195,8 +191,13 @@ class AllGatherOp(BasicOp):
             self.batch_size = self.args_dict["num_tokens"]
             self.dim_size = self.args_dict["hidden_size"]
 
-        # [1, batch_size // world_size, dim_size] --> 
-        # [world_size, batch_size // world_size, dim_size]
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["float32", "float16", "bfloat16", "int32", "int8"]:
+            raise ValueError(f"dtype must be float32, float16, bfloat16, int32 or int8, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
+        
+        # [1,           batch_size * dim_size // world_size] --> 
+        # [world_size,  batch_size * dim_size // world_size]
         self.input_tensor_info = {
             "src": OpTensorInfo(
                 shape=[self.batch_size * self.dim_size // self.world_size],
@@ -242,8 +243,12 @@ class AllGatherOp(BasicOp):
     def all_gather_run(self, tensor_mapping):
         src = tensor_mapping["src"]
         dst = tensor_mapping["dst"]
+
         dist_module = self.backend.get_dist_module()
-        dist_module.all_gather_into_tensor(dst, src, group=self.op_group)
+        dist_module.all_gather_into_tensor(
+            dst, src, 
+            group=self.op_group
+        )
         return dst
 
 
@@ -256,14 +261,9 @@ class AlltoAllOp(BasicOp):
         super().__init__(args_dict, backend, *args, **kwargs)
 
     def prepare(self):
-        self.arg_type = self.args_dict["arg_type"]
+        self.arg_type = self.args_dict.get("arg_type", "default")
         if not self.arg_type in ["default", "llm"]:
-            raise NotImplementedError
-        
-        self.dtype = self.args_dict["dtype"]
-        if not self.dtype in ["float32", "float16", "bfloat16", "int8"]:
-            raise NotImplementedError
-        self.torch_dtype = getattr(torch, self.dtype)
+            raise ValueError(f"arg_type must be default or llm, but got {self.arg_type}")
 
         self.world_size = self.args_dict["world_size"]
         if self.arg_type == "default":
@@ -273,9 +273,13 @@ class AlltoAllOp(BasicOp):
             self.batch_size = self.args_dict["num_tokens"]
             self.dim_size = self.args_dict["hidden_size"]
 
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["float32", "float16", "bfloat16", "int32", "int8"]:
+            raise ValueError(f"dtype must be float32, float16, bfloat16, int32 or int8, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
 
-        # [world_size, batch_size // world_size, dim_size]
-        # --> [world_size, batch_size // world_size, dim_size]
+        # [world_size, batch_size * dim_size // world_size] --> 
+        # [world_size, batch_size * dim_size // world_size]
         self.input_tensor_info = {
             "src": OpTensorInfo(
                 shape=[self.batch_size * self.dim_size],
@@ -321,6 +325,7 @@ class AlltoAllOp(BasicOp):
     def all_to_all_run(self, tensor_mapping):
         src = tensor_mapping["src"]
         dst = tensor_mapping["dst"]
+        
         dist_module = self.backend.get_dist_module()
         dist_module.all_to_all_single(
             dst, src, 
@@ -494,6 +499,99 @@ class P2POp(BasicOp):
         # for req in reqs:
         #     req.wait()
 
+
+
+
+class AllReduce_H2D_Op(BasicOp):
+    def __init__(self, args_dict, backend, *args, **kwargs):
+        super().__init__(args_dict, backend, *args, **kwargs)
+
+    def prepare(self):
+        self.arg_type = self.args_dict["arg_type"]
+        if not self.arg_type in ["default"]:
+            raise NotImplementedError
+        
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["float32", "float16", "bfloat16"]:
+            raise NotImplementedError
+        self.torch_dtype = getattr(torch, self.dtype)
+
+        self.world_size = self.args_dict["world_size"]
+        if self.arg_type == "default":
+            self.batch_size = self.args_dict["batch_size"]
+            self.dim_size = self.args_dict["dim_size"]
+
+        self.input_tensor_info = {
+            "data": OpTensorInfo(
+                shape=[self.batch_size * self.dim_size],
+                dtype=self.torch_dtype,
+                device=self.backend.get_torch_device_name(), 
+                creator=torch.empty
+            ), 
+            "src": OpTensorInfo(
+                shape=[self.batch_size * self.dim_size],
+                dtype=self.torch_dtype,
+                device="cpu", 
+                creator=torch.empty
+            )
+        }
+        self.output_tensor_info = {
+            "dst": OpTensorInfo(
+                shape=[self.batch_size * self.dim_size],
+                dtype=self.torch_dtype,
+                device=self.backend.get_torch_device_name(), 
+                creator=torch.empty
+            )
+        }
+
+        self.all_reduce_input_tensor_size = calc_tensor_size(self.input_tensor_info["data"])
+        self.all_reduce_output_tensor_size = self.all_reduce_input_tensor_size
+        self.h2d_input_tensor_size = calc_tensor_size(self.input_tensor_info["src"])
+        self.h2d_output_tensor_size = calc_tensor_size(self.output_tensor_info["dst"])
+
+        self.tensor_size = \
+            self.all_reduce_input_tensor_size + \
+            self.all_reduce_output_tensor_size + \
+            self.h2d_input_tensor_size + \
+            self.h2d_output_tensor_size
+        
+        self.read_bytes = \
+            self.all_reduce_input_tensor_size
+        self.write_bytes = \
+            self.all_reduce_input_tensor_size + \
+            self.h2d_output_tensor_size
+        
+        self.io_bytes = self.read_bytes + self.write_bytes
+
+        self.all_reduce_algo_size = self.all_reduce_input_tensor_size
+        self.all_reduce_bus_size = 2 * (self.world_size - 1) * self.all_reduce_algo_size / self.world_size
+
+        self.h2d_algo_size = self.h2d_output_tensor_size
+        self.h2d_bus_size = self.h2d_algo_size
+
+        self.algo_size = self.all_reduce_algo_size + self.h2d_algo_size
+        self.bus_size = self.all_reduce_bus_size + self.h2d_bus_size
+
+        self.calc_flops = 0
+
+        self._create_tensors_func = partial(
+            self._create_in_out_tensors,
+            create_inputs=True,
+            create_outputs=True
+        )
+
+        self._run_func = self.all_reduce_h2d_run
+
+
+    def all_reduce_h2d_run(self, tensor_mapping):
+        data = tensor_mapping["data"]
+        src = tensor_mapping["src"]
+        dst = tensor_mapping["dst"]
+        dist_module = self.backend.get_dist_module()
+        dist_module.all_reduce(data, async_op=True)
+        dst.copy_(src)
+        return dst
+        
 
 
 

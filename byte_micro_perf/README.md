@@ -1,7 +1,7 @@
 # ByteMicroPerf
 
 ## Introduction
-micro_perf is a part of ByteMLPerf, which is mainly used to evaluate the performance of frequent computation and communication operators in mainstream deep learning models on new emerging heterogeneous hardwares. The main characteristics are as follows:
+micro_perf is a part of xpu-perf, which is mainly used to evaluate the performance of frequent computation and communication operators in mainstream deep learning models on new emerging heterogeneous hardwares. The main characteristics are as follows:
 
 - Easy and quick access for diverse heterogeneous hardware
 - Evaluation process fitting realistic business scenarios
@@ -11,32 +11,47 @@ micro_perf is a part of ByteMLPerf, which is mainly used to evaluate the perform
 
 ### Prepare running environment
 ```
-git clone https://github.com/bytedance/ByteMLPerf.git
-cd ByteMLPerf/byte_micro_perf
+git clone git@github.com:bytedance/xpu-perf.git
+cd xpu-perf/byte_micro_perf
 ```
 
 ### An example
 ```
-python3 launch.py --hardware_type GPU --task exp 
+python3 launch.py --backend GPU --task add
 ```
 #### Usage
 ```
-usage: launch.py [-h] [--hardware_type HARDWARE_TYPE] [--show_hardware_list] [--task_dir TASK_DIR] [--task TASK] [--show_task_list] [--report_dir REPORT_DIR] [--numa_node {-1,0,1}] [--device DEVICE] [--disable_parallel] [--disable_profiling]
+usage: launch.py [-h] [--backend {GPU}] [--show_backends] [--task_dir TASK_DIR] [--task TASK] [--workload WORKLOAD] [--report_dir REPORT_DIR] [--numa NUMA]
+                 [--device DEVICE] [--node_world_size NODE_WORLD_SIZE] [--node_rank NODE_RANK] [--server_port SERVER_PORT] [--master_addr MASTER_ADDR] [--host_port HOST_PORT]
+                 [--device_port DEVICE_PORT] [--enable_profiling] [--log_level LOG_LEVEL]
 
-options:
+optional arguments:
   -h, --help            show this help message and exit
-  --hardware_type HARDWARE_TYPE
-                        The backend going to be evaluted, refs to backends/
-  --show_hardware_list  Print all hardware bytemlperf supported
-  --task_dir TASK_DIR   The direcotry of tasks going to be evaluted, e.g., default set to workloads
-  --task TASK           The task going to be evaluted, refs to workloads/, default use all tasks in workloads/
-  --show_task_list      Print all available task names
+  --backend {GPU}
+                        Backend to use, default is GPU
+  --show_backends       Show supported backends
+  --task_dir TASK_DIR   Task directory, default is workloads/basic
+  --task TASK           Task to bench, default is all
+  --workload WORKLOAD   Workload to bench, suppor jsonl or csv format. default is None which use **task.json** or **task.csv** in **task_dir**
   --report_dir REPORT_DIR
-                        Report dir, default is reports/
-  --numa_node {-1,0,1}  NUMA node id, -1 means normal run, default is None which means numa_balance.
-  --device DEVICE       Device id, default is all.
-  --disable_parallel    Disable parallel run for normal op.
-  --disable_profiling   Disable profiling op kernels.
+                        Report directory, default is reports
+  --numa NUMA           Numa config. Default is None which create **num_numa_nodes** processes to bench, each of them run on one numa node and schedule some devices. Values '-1' or '0' or '1'
+                        mean creating one process and specifing all numa nodes or node 0 or node 1. Value '0,1' means creating 2 processes and assign node 0 and node 1 to them respectively.
+  --device DEVICE       Device config.Default is None which use all devices on current machine.Value '0,1' means using device 0 and device 1 on current machine.
+  --node_world_size NODE_WORLD_SIZE
+                        Node world size, default is 1
+  --node_rank NODE_RANK
+                        Node rank, default is 0
+  --server_port SERVER_PORT
+                        Server port, default is 49372
+  --master_addr MASTER_ADDR
+                        Master address, default is localhost
+  --host_port HOST_PORT
+                        Host port, default is 49373
+  --device_port DEVICE_PORT
+                        Device port, default is 49374
+  --enable_profiling    Enable profiling, default is False
+  --log_level LOG_LEVEL
 ```
 
 ### Expected Output

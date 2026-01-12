@@ -6,8 +6,8 @@ sys.path.insert(
     str(pathlib.Path(__file__).absolute().parents[3])
 )
 
-from core.ops.llm_ops import MoeQuantMatmulOp
+from core.ops.llm_ops import QuantMatmulOp
 
 OP_MAPPING = {
-    "torch": MoeQuantMatmulOp
+    "torch": QuantMatmulOp
 }

@@ -18,21 +18,70 @@ MICRO_PERF_DIR = BACKEND_DIR.parent
 sys.path.insert(0, str(MICRO_PERF_DIR))
 
 from core.backend import Backend
-from backends.GPU.provider_gpu import GPU_PROVIDER
 from core.utils import suppress_stdout_stderr
+try:
+    from backends.GPU.provider_gpu import GPU_PROVIDER
+except:
+    GPU_PROVIDER = {}
+try:
+    from backends.GPU.env_gpu import GPU_ENV
+except:
+    GPU_ENV = {}
+
+from backends.GPU.provider_gpu import GPU_PROVIDER
+
 
 
 class BackendGPU(Backend):
     def __init__(self):
         super().__init__()
 
-        self.avail_providers = GPU_PROVIDER
+    def get_backend_info(self):
+        info_dict = {}
 
-    def __del__(self):
-        if self.numa_rank == 0:
-            PROFILER_DIR = pathlib.Path.cwd().joinpath("profiling")
-            if PROFILER_DIR.exists():
-                shutil.rmtree(PROFILER_DIR)
+        # device相关
+        info_dict["device_name"] = torch.cuda.get_device_name(0)
+        info_dict["device_count"] = torch.cuda.device_count()
+
+        device_properties = torch.cuda.get_device_properties(0)
+        info_dict["device_memory_mb"] = device_properties.total_memory / (1024 ** 2)
+        
+
+
+        __torch_version = torch.__version__
+        __cuda_version = torch.version.cuda
+        __driver_version = ''
+        nvidia_smi_output = subprocess.run(
+            ['nvidia-smi', '-q', '-i', '0'], 
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        for line in nvidia_smi_output.stdout.split('\n'):
+            if 'Driver Version' in line:
+                __driver_version = line.split(':')[1].strip()
+                break
+
+        info_dict["torch_version"] = __torch_version
+        info_dict["torch_cuda_version"] = __cuda_version
+        info_dict["driver_version"] = __driver_version
+
+        return info_dict
+    
+    def get_default_envs(self):
+        return GPU_ENV.get(torch.cuda.get_device_name(0), {})
+    
+    def get_provider_info(self):
+        return GPU_PROVIDER
+
+    def clean_extra_files(self):
+        PROFILER_DIR = pathlib.Path.cwd().joinpath("profiling")
+        if PROFILER_DIR.exists():
+            shutil.rmtree(PROFILER_DIR)
+
+        
+
+
 
     """
     device management related
@@ -70,25 +119,7 @@ class BackendGPU(Backend):
         torch.cuda.empty_cache()
 
 
-    def get_backend_env(self):
-        __torch_version = torch.__version__
-        __cuda_version = torch.version.cuda
-        __driver_version = ''
-        nvidia_smi_output = subprocess.run(
-            ['nvidia-smi', '-q', '-i', '0'], 
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        for line in nvidia_smi_output.stdout.split('\n'):
-            if 'Driver Version' in line:
-                __driver_version = line.split(':')[1].strip()
-                break
-        return {
-            "torch": __torch_version,
-            "torch_cuda": __cuda_version,
-            "driver": __driver_version,
-        }
+
 
 
     """
