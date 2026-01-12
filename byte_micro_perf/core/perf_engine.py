@@ -27,7 +27,6 @@ import prettytable
 from datetime import timedelta
 
 from typing import Any, Dict, List
-import itertools
 from collections import namedtuple
 
 import traceback
@@ -88,40 +87,12 @@ def parse_task(task_dir, task):
 
 def engine_run(rank, *args):
     world_size, queue_instance, configs = args
+    configs.numa_world_size = world_size
+    configs.numa_rank = rank
     _ = queue_instance.get()
 
-    # assign node
-    node_world_size = configs.node_world_size
-    node_rank = configs.node_rank
 
-    # assign numa
-    numa_world_size = world_size
-    numa_rank = rank
-    configs.numa_world_size = numa_world_size
-    configs.numa_rank = numa_rank
-
-    # assign all process
-    all_process_size = node_world_size * numa_world_size
-    all_process_rank = node_rank * numa_world_size + numa_rank
-    configs.all_process_size = all_process_size
-    configs.all_process_rank = all_process_rank
-
-    # try init process dist
-    os.environ['MASTER_PORT'] = os.environ['GLOO_PORT']
-    try:
-        dist.init_process_group(
-            backend="gloo", 
-            world_size=all_process_size,
-            rank=all_process_rank, 
-            timeout=timedelta(seconds=1800)
-        )
-        data = torch.ones(1)
-        dist.all_reduce(data)
-    except Exception as e:
-        traceback.print_exc()
-        sys.exit(1)
-        
-    # try create scheduler
+    # try create scheduler and init process distributed if necessary
     try:
         scheduler = Scheduler(configs)
     except Exception as e:
@@ -129,9 +100,9 @@ def engine_run(rank, *args):
         sys.exit(-1)
 
     for i, task in enumerate(configs.task.split(",")):
-        # sync for all processes
-        dist.barrier()
-        if numa_rank == 0:
+        # sync for all numa processes
+        scheduler.sync()
+        if configs.numa_rank == 0:
             print("")
             print("=" * 100)
             print(f"{i+1}: {task}")
@@ -224,4 +195,4 @@ def engine_run(rank, *args):
             traceback.print_exc()
             continue
 
-    dist.destroy_process_group()
+    

@@ -3,8 +3,6 @@ import time
 import torch
 import copy
 import pathlib
-from typing import List
-from collections import namedtuple
 from functools import partial
 
 FILE_DIR = pathlib.Path(__file__).parent.absolute()
@@ -142,10 +140,8 @@ class BasicOp:
         return self._create_tensors_func(instance_num)
 
 
-    def summary(self, latency_us):
+    def summary(self, latency_us, kernel_mapping={}):
         target_dict = {}
-        env_dict = {}
-
         if latency_us > 0:
             target_dict["latency(us)"] = round(latency_us, 3)
             if self.is_concurrent:
@@ -161,15 +157,8 @@ class BasicOp:
                 target_dict["calc_flops"] = self.calc_flops
                 target_dict["calc_flops_power(tflops)"] = round(self.calc_flops / latency_us / 1e6, 3)
                 target_dict["calc_mem_ratio"] = round(self.calc_flops / self.io_bytes, 3) if self.io_bytes!= 0 else 0
-
-
-        
-            env_dict.update(self.backend.env_dict)
-            if len(self.extra_providers) > 0:
-                for extra_provider in self.extra_providers:
-                    if extra_provider in self.backend.avail_providers:
-                        env_dict.update(self.backend.avail_providers[extra_provider])
-        return target_dict, env_dict
+            target_dict["kernels"] = kernel_mapping
+        return target_dict
 
 
     def merge_summary(self, target_dict_list):
@@ -183,10 +172,9 @@ class BasicOp:
         bus_bw_list = [target_dict["bus_bw(GB/s)"] for target_dict in target_dict_list]
 
         target_dict = copy.deepcopy(target_dict_list[0])
-        target_dict["latency(us)"] = min(latency_list)
-        
-        target_dict["algo_bw(GB/s)"] = max(algo_bw_list)
-        target_dict["bus_bw(GB/s)"] = max(bus_bw_list)
+        target_dict["latency(us)"] = round(sum(latency_list) / len(latency_list), 3)
+        target_dict["algo_bw(GB/s)"] = round(sum(algo_bw_list) / len(algo_bw_list), 3)
+        target_dict["bus_bw(GB/s)"] = round(sum(bus_bw_list) / len(bus_bw_list), 3)
         target_dict["algo_bw_sum(GB/s)"] = round(sum(algo_bw_list), 3)
         target_dict["bus_bw_sum(GB/s)"] = round(sum(bus_bw_list), 3)
         target_dict["latency_list(us)"] = latency_list

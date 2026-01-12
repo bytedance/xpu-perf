@@ -1,0 +1,18 @@
+{
+    "flash_attention": [
+        {
+            "arg_type": "llm", 
+            "attn_mode": "decode", 
+            "dtype.compute_dtype.cache_dtype": [
+                ["bfloat16", "bfloat16", "bfloat16"]
+            ], 
+            "q_head_num.kv_head_num.head_dim": [
+                [64, 8, 128], 
+                [8, 1, 128]
+            ], 
+            "batch_size": [8, 16, 24, 32], 
+            "cache_len": [1024, 2048, 4096, 8192], 
+            "q_len": [1, 2, 3, 4]
+        }
+    ]
+}
