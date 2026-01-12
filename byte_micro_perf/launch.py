@@ -42,8 +42,7 @@ def parse_tasks(task_dir, task):
         # json_task_list = [task_json.stem for task_json in task_dir.rglob("*.json")]
         # all_task_list = list(set(json_task_list) | set(csv_task_list))
 
-        json_file_list = list(task_dir.rglob("*.json"))
-        
+        json_file_list = list(task_dir.rglob("*.json"))        
         
         all_test_cases = {}
         for json_file in json_file_list:
@@ -56,13 +55,12 @@ def parse_tasks(task_dir, task):
 
         target_op_set = set()
         if task == "all":
-            pass
+            target_test_cases = all_test_cases
         else:
             for required_task in task.split(","):
                 required_task = required_task.strip()
                 target_op_set.add(required_task)
-
-        target_test_cases = {k: v for k, v in all_test_cases.items() if k in target_op_set}
+            target_test_cases = {k: v for k, v in all_test_cases.items() if k in target_op_set}
        
     return target_test_cases
 
