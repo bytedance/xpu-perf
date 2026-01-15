@@ -487,13 +487,13 @@ def norm_bench_process(args_dict):
         total_results.update(cur_results)
         print("\n")
 
-    for engine_name, engine in engines.items():
-        engine.stop()
+
 
 
 
     for task_info, results in total_results.items():
-        op_name, op_provider, *_ = task_info
+        op_name = task_info[0]
+        op_provider = task_info[1]
         
         """
         target_dir: 
@@ -510,61 +510,58 @@ def norm_bench_process(args_dict):
         )
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # 按照 arg_type, dtype, dst_dtype进行分类
-        data_classify = {}
-
+        data_list = []
+        arguments_set = set()
+        target_set = set()
         for result in results:
-            key_str = ""
-
-            result_idx = result[0]
-            result_args = result[1]["arguments"]
-            result_targets = result[1]["targets"]
-
-            if "arg_type" in result_args:
-                key_str += f"{result_args['arg_type']}_"
-            if "dtype" in result_args:
-                key_str += f"{result_args['dtype']}_"
-            if "dst_dtype" in result_args:
-                key_str += f"{result_args['dst_dtype']}_"
-            if "world_size" in result_args:
-                key_str += f"group{result_args['world_size']}_"
-
-            if key_str.endswith("_"):
-                key_str = key_str[:-1]
-
-            if key_str not in data_classify:
-                data_classify[key_str] = []
-
+            if not result:
+                continue
             template_dict = {
                 "sku_name": backend_instance.backend_info["device_name"], 
                 "op_name": op_name, 
                 "provider": op_provider, 
-                "arguments": result_args,
-                "targets": result_targets
+                "arguments": result["arguments"],
+                "targets": result["targets"]
             }
+            data_list.append(template_dict) 
+            arguments_set.update(result["arguments"].keys())
+            target_set.update(result["targets"].keys())  
+            
 
-            data_classify[key_str].append(template_dict)
+        target_jsonl_file = target_dir.joinpath(f"{op_name}-{op_provider}.jsonl")
+        with jsonlines.open(target_jsonl_file, "w") as f:
+            f.write_all(data_list)
 
-
-        for key in data_classify:
-            with jsonlines.open(target_dir.joinpath(f"{key}.jsonl"), "w") as f:
-                f.write_all(data_classify[key])
+        target_csv_file = target_dir.joinpath(f"{op_name}-{op_provider}.csv")
+        with open(target_csv_file, "w") as f:
+            first_occur_arguments = data_list[0]["arguments"].keys()
+            first_occur_targets = data_list[0]["targets"].keys()
 
             keys = ["sku_name", "op_name", "provider"]
-            keys.extend(data_classify[key][0]["arguments"].keys())
-            keys.extend(data_classify[key][0]["targets"].keys())
+            keys.extend(first_occur_arguments)
+            for key in arguments_set - set(first_occur_arguments):
+                keys.append(key)
+            keys.extend(first_occur_targets)
+            for key in target_set - set(first_occur_targets):
+                keys.append(key)
 
-            with open(target_dir.joinpath(f"{key}.csv"), "w") as f:
-                writer = csv.writer(f)
-                writer.writerow(keys)
-                for item in data_classify[key]:
-                    row = []
-                    row.append(item["sku_name"])
-                    row.append(item["op_name"])
-                    row.append(item["provider"])
-                    row.extend(item["arguments"].values())
-                    row.extend(item["targets"].values())
-                    writer.writerow(row)
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writeheader()
+
+            for item in data_list:
+                data_dict = {}
+                data_dict["sku_name"] = item["sku_name"]
+                data_dict["op_name"] = item["op_name"]
+                data_dict["provider"] = item["provider"]
+                data_dict.update(item["arguments"])
+                data_dict.update(item["targets"])
+                writer.writerow(data_dict)
+
+    for engine_name, engine in engines.items():
+        engine.stop()
+        
+
+        
 
 
 

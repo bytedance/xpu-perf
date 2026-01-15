@@ -88,6 +88,7 @@ SUPPORTED_OPS = {
     # llm: basic
     "scale_dynamic_quant": {"default_engine": "ComputeEngine"},
     "add_rms_norm_dynamic_quant": {"default_engine": "ComputeEngine"},
+    "add_rms_norm": {"default_engine": "ComputeEngine"},
 
     # llm: MOE
     "moe_gating_gemm": {"default_engine": "ComputeEngine"},

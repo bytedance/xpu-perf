@@ -111,10 +111,35 @@ class BaseEngine(ABC):
     def stop(self):
         raise NotImplementedError
 
-
-    @abstractmethod
     def dispatch(self, tasks: Dict[str, List[Dict[str, Any]]]):
-        raise NotImplementedError
+        task_idx = 0
+        for task_info, task_cases in tasks.items():
+            logger.info(f"dispatch task {task_info} with {len(task_cases)} test cases")
+            for test_case in task_cases:
+                self.input_queue.put((task_idx, task_info, test_case))
+                task_idx += 1
+
+        all_results = {}
+        for _ in range(task_idx):
+            result_idx, result_dict = self.output_queue.get()
+            if result_dict:
+                all_results[result_idx] = result_dict
+
+        results = {}
+        sort_idx = 0
+        for task_info, task_cases in tasks.items():
+            cur_task_results = []
+            for test_case in task_cases:
+                if sort_idx not in all_results:
+                    logger.error(f"missing result for task_info {task_info} test case {test_case}")
+                else:
+                    cur_task_results.append(all_results[sort_idx])
+                sort_idx += 1
+
+            if cur_task_results:
+                results[task_info] = cur_task_results    
+
+        return results
 
 
 
@@ -178,27 +203,6 @@ class ComputeEngine(BaseEngine):
 
             self.subprocess_procs = []
             self.subprocess_pids = []
-
-
-    def dispatch(self, tasks: Dict[Any, List[Dict[str, Any]]]):
-        for task_info, task_cases in tasks.items():
-            logger.info(f"dispatch task {task_info} with {len(task_cases)} test cases")
-            for idx, test_case in enumerate(task_cases):
-                self.input_queue.put((idx, task_info, test_case))
-
-        results = {}
-        for task_info, task_cases in tasks.items():
-            results[task_info] = []
-            for idx, test_case in enumerate(task_cases):
-                result = self.output_queue.get()
-                if not result[1]:
-                    continue
-                results[task_info].append(result)
-
-        for key in results:
-            results[key] = sorted(results[key], key=lambda x: x[0])
-
-        return results
 
 
 class XCCLEngine(BaseEngine):
@@ -268,27 +272,6 @@ class XCCLEngine(BaseEngine):
 
             self.subprocess_procs = []
             self.subprocess_pids = []
-
-
-    def dispatch(self, tasks: Dict[str, List[Dict[str, Any]]]):
-        for task_info, task_cases in tasks.items():
-            logger.info(f"dispatch task {task_info} with {len(task_cases)} test cases")
-            for idx, test_case in enumerate(task_cases):
-                self.input_queue.put((idx, task_info, test_case))
-
-        results = {}
-        for task_info, task_cases in tasks.items():
-            results[task_info] = []
-            for idx, test_case in enumerate(task_cases):
-                result = self.output_queue.get()
-                if not result[1]:
-                    continue
-                results[task_info].append(result)
-
-        for key in results:
-            results[key] = sorted(results[key], key=lambda x: x[0])
-
-        return results
             
 
 class P2PEngine(BaseEngine):

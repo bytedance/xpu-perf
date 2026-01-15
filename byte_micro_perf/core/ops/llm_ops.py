@@ -327,6 +327,99 @@ class HeadRMSNormDynamicQuantOp(BasicOp):
         
 
 
+class AddRmsNormOp(BasicOp):
+    def __init__(self, args_dict, backend, *args, **kwargs):
+        super().__init__(args_dict, backend, *args, **kwargs)
+
+    def prepare(self):
+        self.arg_type = self.args_dict["arg_type"]
+        if not self.arg_type in ["llm"]:
+            raise ValueError("AddRmsNormOp only support llm arg_type")
+        
+        # src_dtype
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["bfloat16"]:
+            raise ValueError("AddRmsNormOp only support bfloat16 dtype")
+        self.torch_dtype = get_torch_dtype(self.dtype)
+
+        # pre-defined attrs
+        self.sp_size = self.args_dict.get("sp_size", 1)
+        self.num_tokens = self.args_dict["num_tokens"] // self.sp_size
+        self.hidden_size = self.args_dict["hidden_size"]
+
+        self.eps = 1e-5
+
+        # input/output tensors
+        self.input_tensor_info = {
+            "hidden_states": OpTensorInfo(
+                shape=[self.num_tokens, self.hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+            ), 
+            "residual": OpTensorInfo(
+                shape=[self.num_tokens, self.hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+            ), 
+            "norm_weight": OpTensorInfo(
+                shape=[self.hidden_size, ],
+                dtype=torch.float32,
+                device=self.backend.get_torch_device_name(),
+                creator=torch.ones
+            ), 
+        }
+        self.output_tensor_info = {
+            "after_res": OpTensorInfo(
+                shape=[self.num_tokens, self.hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+            ), 
+            "output": OpTensorInfo(
+                shape=[self.num_tokens, self.hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+            ), 
+        }
+
+        # calculator
+        self.input_tensor_size = sum([calc_tensor_size(info) for info in self.input_tensor_info.values()])
+        self.output_tensor_size = sum([calc_tensor_size(info) for info in self.output_tensor_info.values()])
+        self.tensor_size = self.input_tensor_size + self.output_tensor_size
+
+        self.read_bytes = self.input_tensor_size
+        self.write_bytes = self.output_tensor_size
+        self.io_bytes = self.read_bytes + self.write_bytes
+
+        # creator func
+        self._create_tensors_func = partial(
+            self._create_in_out_tensors, 
+            create_inputs=True, 
+            create_outputs=False
+        )
+
+        # run func
+        self._run_func = self.add_rms_norm_run
+
+    def add_rms_norm_run(self, tensor_mapping):
+        # get pre-allocated input tensors
+        hidden_states = tensor_mapping["hidden_states"]
+        residual = tensor_mapping["residual"]
+        norm_weight = tensor_mapping["norm_weight"]
+
+        output = torch.nn.functional.rms_norm(
+            hidden_states + residual, 
+            normalized_shape=hidden_states.shape[-1],
+            weight=norm_weight,
+            eps=self.eps
+        )
+
+        return output
+
+        
+
+
+
+
 class AddRmsNormDynamicQuantOp(BasicOp):
     def __init__(self, args_dict, backend, *args, **kwargs):
         super().__init__(args_dict, backend, *args, **kwargs)
@@ -491,7 +584,9 @@ class RotaryEmbeddingOp(BasicOp):
         self.rope_offset = self.args_dict.get("rope_offset", 0)
         self.rope_dim = self.args_dict["rope_dim"]
 
-        cos_tensor, sin_tensor = precompute_freqs_cis(self.rope_dim, self.max_kv_len)
+        cos_tensor, sin_tensor = precompute_freqs_cis(
+            self.rope_dim * 2, self.max_kv_len
+        )
 
         self.input_tensor_info = {
             "packed_qkv": OpTensorInfo(
@@ -794,7 +889,7 @@ class StoreKVCacheOp(BasicOp):
             self.write_bytes = \
                 calc_tensor_size(self.input_tensor_info["k_cache"]) / self.num_kv_blocks / self.block_size * self.num_tokens + \
                 calc_tensor_size(self.input_tensor_info["v_cache"]) / self.num_kv_blocks / self.block_size * self.num_tokens + \
-                calc_tensor_size(self.input_tensor_info["block_table"]) / self.batch_size / self.max_block_num_per_seq * self.q_num_blocks
+                calc_tensor_size(self.input_tensor_info["block_table"]) / self.batch_size / self.max_block_num_per_seq * self.num_q_blocks
 
         self.io_bytes = self.read_bytes + self.write_bytes
 
@@ -1471,18 +1566,18 @@ class QuantMatmulOp(BasicOp):
     def prepare(self):
         self.arg_type = self.args_dict["arg_type"]
         if not self.arg_type in ["llm"]:
-            raise NotImplementedError("QuantMatmulOp only support llm arg_type")
+            raise ValueError("QuantMatmulOp only support llm arg_type")
 
         # src_dtype
         self.dtype = self.args_dict["dtype"]
-        if not self.dtype in ["int8"]:
-            raise NotImplementedError(f"QuantMatmulOp only support int8, but got {self.dtype}")
-        self.torch_dtype = getattr(torch, self.dtype)
+        if not self.dtype in ["int8", "float8"]:
+            raise ValueError(f"QuantMatmulOp only support int8, float8_e4m3, float8_e5m2, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
 
         # dst_dtype
         self.dst_dtype = self.args_dict["dst_dtype"]
         if not self.dst_dtype in ["bfloat16"]:
-            raise NotImplementedError(f"QuantMatmulOp only support bfloat16 dst_dtype, but got {self.dst_dtype}")
+            raise ValueError(f"QuantMatmulOp only support bfloat16 dst_dtype, but got {self.dst_dtype}")
         self.dst_torch_dtype = getattr(torch, self.dst_dtype)
 
         # pre-defined attrs
@@ -1491,6 +1586,7 @@ class QuantMatmulOp(BasicOp):
         self.hidden_size = self.args_dict["hidden_size"]
         self.new_hidden_size = self.args_dict["new_hidden_size"]
         self.trans_w = self.args_dict.get("trans_w", False)
+        self.transpose_o = self.args_dict.get("transpose_o", False)
 
         self.input_tensor_info = {
             "hidden_states": OpTensorInfo(
@@ -1560,13 +1656,74 @@ class QuantMatmulOp(BasicOp):
         expert_weight = tensor_mapping["expert_weight"]
         expert_scale = tensor_mapping["expert_scale"]
 
+        # [num_tokens // sp_size, new_hidden_size]
+        # [num_tokens // sp_size, sp_size, new_hidden_size // sp_size]
+        # [sp_size, new_hidden_size // sp_size, new_hidden_size // sp_size]
         y = fake_quant_gemm(
             hidden_states, per_token_scale, 
             expert_weight, expert_scale, 
             dst_torch_dtype=self.dst_torch_dtype, 
             trans_w=self.trans_w
         )
+        if self.transpose_o and self.sp_size > 1:
+            y = y.view(self.num_tokens, self.sp_size, self.new_hidden_size // self.sp_size)
+            y = y.transpose(0, 1).contiguous().view(self.num_tokens, self.new_hidden_size)
         return y
+
+
+# class QuantGroupGemmReduceSumOp(BasicOp):
+#     def __init__(self, args_dict, backend, *args, **kwargs):
+#         super().__init__(args_dict, backend, *args, **kwargs)
+
+#     def prepare(self):
+#         self.arg_type = self.args_dict["arg_type"]
+#         if not self.arg_type in ["llm"]:
+#             raise ValueError("QuantGroupGemmReduceSumOp only support llm arg_type")
+        
+#         self.dtype = self.args_dict["dtype"]
+#         if not self.dtype in ["int8", "float8"]:
+#             raise ValueError(f"QuantGroupGemmReduceSumOp only support int8, but got {self.dtype}")
+#         self.torch_dtype = get_torch_dtype(self.dtype)
+
+#         self.dst_dtype = self.args_dict["dst_dtype"]
+#         if not self.dst_dtype in ["bfloat16"]:
+#             raise ValueError(f"QuantGroupGemmReduceSumOp only support bfloat16 dst_dtype, but got {self.dst_dtype}")
+#         self.dst_torch_dtype = get_torch_dtype(self.dst_dtype)
+
+#         # pre-defined attrs
+#         self.sp_size = self.args_dict.get("sp_size", 1)
+#         self.num_tokens = self.args_dict["num_tokens"] // self.sp_size
+#         self.hidden_size = self.args_dict["hidden_size"]
+#         self.new_hidden_size = self.args_dict["new_hidden_size"]
+#         self.trans_w = self.args_dict.get("trans_w", False)
+
+#         self.input_tensor_info = {
+#             "hidden_states": OpTensorInfo(
+#                 shape=[self.sp_size, self.num_tokens // self.sp_size, self.hidden_size], 
+#                 dtype=self.torch_dtype, 
+#                 device=self.backend.get_torch_device_name(),
+#                 creator=torch.zeros
+#             ), 
+#             "per_token_scale": OpTensorInfo(
+#                 shape=[], 
+#                 dtype=torch.float32, 
+#                 device=self.backend.get_torch_device_name(),
+#                 creator=torch.ones
+#             ), 
+#             "weight": OpTensorInfo(
+#                 shape=[self.sp_size, self.new_hidden_size, self.hidden_size] \
+#                     if self.trans_w else [self.hidden_size, self.new_hidden_size], 
+#                 dtype=self.torch_dtype, 
+#                 device=self.backend.get_torch_device_name(),
+#                 creator=torch.zeros
+#             ), 
+#         }
+        
+
+        
+        
+
+
 
 
 class MoeQuantGroupGemmOp(BasicOp):
@@ -1892,7 +2049,7 @@ class MoeScatterDynamicQuantOp(BasicOp):
                 device=self.backend.get_torch_device_name(),
             ), 
             "experts_smooth_scale": OpTensorInfo(
-                shape=[self.num_experts_per_rank, self.hidden_size], 
+                shape=[self.num_experts, self.hidden_size], 
                 dtype=torch.float32, 
                 device=self.backend.get_torch_device_name(),
                 creator=torch.ones
@@ -1946,7 +2103,7 @@ class MoeScatterDynamicQuantOp(BasicOp):
                     self.expert_dispatch_token_count, dtype=dtype, device=device)
             ), 
             "experts_token_offset": OpTensorInfo(
-                shape=[self.num_experts_per_rank], 
+                shape=[self.num_experts_per_rank + 1], 
                 dtype=torch.int32, 
                 device=self.backend.get_torch_device_name(),
                 creator=lambda size, dtype, device: torch.tensor(

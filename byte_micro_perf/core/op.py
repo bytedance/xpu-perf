@@ -115,7 +115,7 @@ class BasicOp:
         for _ in range(instance_num - 1):
             tensor_mapping = {}
             for key, value in first_tensor_mapping.items():
-                tensor_mapping[key] = value.clone()
+                tensor_mapping[key] = value.clone() if value.device != "cpu" else value.clone().pin_memory()
             all_tensor_list.append(tensor_mapping)
 
         return all_tensor_list

@@ -685,36 +685,3 @@ def static_quant(
     return quant_tokens
 
 
-
-if __name__ == "__main__":
-
-    get_attn_info(
-        "llm", "prefill", 
-        {
-            "batch_size": 16, 
-            "q_len": 1024,
-            "cache_len": 1024, 
-            "unbalance_q": 10,
-            "unbalance_cache": 10,
-            "block_size": 128
-        }
-    )
-
-
-    # get_moe_tokens_info(
-    #     num_tokens=128,
-    #     num_experts=128,
-    #     topk=6,
-    #     ep_size=8
-    # )
-
-
-
-
-
-
-
-
-
-
-
