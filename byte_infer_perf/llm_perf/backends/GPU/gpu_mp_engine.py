@@ -133,7 +133,7 @@ class GpuMpEngine(CoreMpEngine):
                 logger.info(f"rank {local_rank} received signal {signum}, exiting...")
                 if hasattr(model, 'finalize_inference'):
                     model.finalize_inference()
-                os._exit(0)
+                sys.exit(0)
 
             signal.signal(signal.SIGINT, signal_handler)
             signal.signal(signal.SIGTERM, signal_handler)
@@ -195,4 +195,98 @@ class GpuMpEngine(CoreMpEngine):
         output_dict = self._output_queues.get(block=True)
 
         return output_dict
-    
+
+# ROCM_HIPGRAPH modify
+class GpuMpEngineWithGraph(GpuMpEngine):
+    def __init__(self, world_size: int, model_impl: nn.Module, xpu_cfg) -> None:
+        super().__init__(world_size, model_impl, xpu_cfg)
+        logger.info("@@@@@@@@@@ GpuMpEngineWithGraph")
+
+    @torch.no_grad()
+    def mp_loop_worker(
+        self, 
+        local_rank: int, 
+        world_size: int, 
+        input_queue: Queue, 
+        output_queue: Queue, 
+        model_impl, 
+        xpu_config
+    ):
+        try:
+            torch.manual_seed(1)
+
+            # set rank and world_size
+            os.environ["RANK"] = str(local_rank)
+            os.environ["LOCAL_RANK"] = str(local_rank)
+            os.environ["WORLD_SIZE"] = str(world_size)
+            os.environ["LOCAL_WORLD_SIZE"] = str(world_size)
+
+            # create and init model based on model_impl and xpu_config
+            model = model_impl(xpu_config)
+            if hasattr(model, 'init_inference'):
+                model.init_inference()
+        
+            def signal_handler(signum, frame):
+                logger.info(f"rank {local_rank} received signal {signum}, exiting...")
+                if hasattr(model, 'finalize_inference'):
+                    model.finalize_inference()
+                sys.exit(0)
+
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+
+            # current rank is ready
+            output_queue.put("ready", block=True)
+            logger.info(f"{local_rank}/{world_size} rank is ready")
+
+            graph = torch.cuda.CUDAGraph()
+
+            # model process loop
+            while True:
+                (
+                    forward_inputs,
+                ) = input_queue.get(block=True)
+
+                # this is the capture phase of graph
+                if 'capture' in forward_inputs:
+                    graph.reset()   # reset cuda graph each time
+                    inputs_dict = self.build_inputs(forward_inputs)
+                    # model.forward(inputs_dict)
+                    torch.cuda.synchronize()
+                    with torch.cuda.graph(graph):
+                        model.forward(inputs_dict)
+                    torch.cuda.synchronize()
+                    continue
+
+                log = forward_inputs.get("log", False)
+                workspace = forward_inputs.get("workspace", None)
+
+                forward_inputs["log_file"] = None
+                if log and workspace is not None:
+                    workspace_dir = workspace / f"rank_{local_rank}"
+                    workspace_dir.mkdir(exist_ok=True, parents=True)
+                    forward_inputs["log_file"] = open(workspace_dir / "run.log", "w")
+
+
+                inputs_dict = self.build_inputs(forward_inputs)
+                start_time = time.perf_counter_ns()
+
+                # output_dict = model.forward(inputs_dict)
+                graph.replay()
+
+                torch.cuda.synchronize()
+                end_time = time.perf_counter_ns()
+                duration_ms = round((end_time - start_time) / 1e6, 3)
+                output_dict = dict()
+                output_dict["duration_ms"] = duration_ms
+
+                # TP realization: rank0 send result back to main process
+                if local_rank == 0:
+                    output_queue.put(output_dict)
+
+                if log and workspace is not None:
+                    forward_inputs["log_file"].close()
+
+        except Exception as e:
+            logger.exception(f"[BUG] engine _load_and_listen failed, no more requests will be handled. {e}")
+            output_queue.put(RuntimeError("[BUG] fatal exception in model subprocess"))

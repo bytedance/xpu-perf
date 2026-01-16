@@ -129,6 +129,13 @@ def perf_engine(xpu_config, workspace):
     # warmup
     num_warm_iter = 10
     input_template = update_template("context", 1, 1024)
+    is_graph = int(os.environ.get("ENABLE_GRAPH", "0"))
+
+    if is_graph:
+        #ROCM_HIPGRAPH modify
+        input_template['capture'] = 1
+        engine.mp_forward(input_template)
+        input_template.pop('capture')
 
     start_time = time.perf_counter_ns()
     for _ in range(num_warm_iter):
@@ -158,7 +165,6 @@ def perf_engine(xpu_config, workspace):
                     row.append(f"{results[batch_size][seq_len]}")
                 csv_writer.writerow(row)
 
-
     log_results = []
     if xpu_config["perf_config"]["perf_context"]:
         batch_size_list = [1]
@@ -169,11 +175,18 @@ def perf_engine(xpu_config, workspace):
             context_results[batch_size] = {}
             for seq_len in seq_len_list:
                 input_template = update_template("context", 1, seq_len)
+                if is_graph:
+                    #ROCM_HIPGRAPH modify
+                    input_template['capture'] = 1
+                    engine.mp_forward(input_template)
+                    input_template.pop('capture')
 
+
+                total_test_iter = 20
                 start_iters = 2
                 test_iter = 0
                 duration_ms = 0.
-                while duration_ms < 5000. and test_iter < 100:
+                while test_iter < total_test_iter:
                     result = engine.mp_forward(input_template)
                     if start_iters > 0:
                         start_iters -= 1
@@ -205,11 +218,18 @@ def perf_engine(xpu_config, workspace):
             decode_results[batch_size] = {}
             for seq_len in seq_len_list:
                 input_template = update_template("decode", batch_size, seq_len)
+                if is_graph:
+                    #ROCM_HIPGRAPH modify
+                    input_template['capture'] = 1
+                    engine.mp_forward(input_template)
+                    input_template.pop('capture')
 
+                total_test_iter = 20
                 start_iters = 2
                 test_iter = 0
+
                 duration_ms = 0.
-                while duration_ms < 5000. and test_iter < 100:
+                while test_iter < total_test_iter:
                     result = engine.mp_forward(input_template)
                     if start_iters > 0:
                         start_iters -= 1
