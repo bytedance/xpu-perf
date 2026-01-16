@@ -29,7 +29,7 @@ class RuntimeBackend(object):
 
     def load(self, batch_size) -> str:
         """
-        Return runtime backend version details
+        Load model for current backend
         """
         raise NotImplementedError("RuntimeBackend:load")
 

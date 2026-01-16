@@ -1,0 +1,18 @@
+{
+    "model": "llama3.1-8b",
+    "test_accuracy": false,
+    "min_tp_size": 1, 
+    "accuracy_config": {
+        "dataset": "llm_perf/datasets/merged_52_test.csv", 
+        "min_new_tokens": 1, 
+        "max_new_tokens": 512
+    }, 
+    "test_perf": true,
+    "perf_config": {
+        "tp_sizes": [1], 
+        "batch_sizes": [1, 4, 8],
+        "input_tokens": [1024], 
+        "output_tokens": 200, 
+        "perf_time": 100
+    }
+}
