@@ -586,7 +586,7 @@ weight: [K, N], per channel quant, with scale [N]
     - float32
 
 - (in) expert_weight
-    - [hidden_size, new_hidden_size]
+    - [hidden_size, new_hidden_size] or [new_hidden_size, hidden_size]
     - int8, float8
 
 - (in) expert_scale
@@ -598,6 +598,16 @@ weight: [K, N], per channel quant, with scale [N]
 - (out) y
     - [num_tokens // sp_size, new_hidden_size]
     - bfloat16
+
+---
+
+- (attr) sp_size
+- (attr) trans_w, supports {True, False}, default is False
+- (attr) transpose_o, supports {True, False}, default is False, if true:
+    - [num_tokens // sp_size, new_hidden_size]
+    - --> [num_tokens // sp_size, sp_size, new_hidden_size // sp_size]
+    - --> [sp_size, num_tokens // sp_size, new_hidden_size // sp_size]
+    - --> [num_tokens, new_hidden_size // sp_size]
 
 
 

@@ -38,10 +38,6 @@ def parse_tasks(task_dir, task):
             logger.error(f"Task dir {task_dir} not exists")
             sys.exit(1)
 
-        # csv_task_list = [task_csv.stem for task_csv in task_dir.rglob("*.csv")]
-        # json_task_list = [task_json.stem for task_json in task_dir.rglob("*.json")]
-        # all_task_list = list(set(json_task_list) | set(csv_task_list))
-
         json_file_list = list(task_dir.rglob("*.json"))        
         
         all_test_cases = {}
@@ -55,14 +51,14 @@ def parse_tasks(task_dir, task):
 
         target_op_set = set()
         if task == "all":
-            target_test_cases = all_test_cases
+            task_dict = all_test_cases
         else:
             for required_task in task.split(","):
                 required_task = required_task.strip()
                 target_op_set.add(required_task)
-            target_test_cases = {k: v for k, v in all_test_cases.items() if k in target_op_set}
-       
-    return target_test_cases
+            task_dict = {k: v for k, v in all_test_cases.items() if k in target_op_set}
+    
+    return task_dict
 
 
 def parse_workload(workload):
@@ -450,6 +446,8 @@ def norm_bench_process(args_dict):
         for op_provider, op_config in backend_instance.op_mapping[op_name].items():
             op_cls = op_config["op_cls"]
             engine_name = op_config["engine_name"]
+
+            print(op_cls, engine_name)
 
             if engine_name not in engine_tasks:
                 engine_tasks[engine_name] = {}

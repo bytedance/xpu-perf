@@ -1657,54 +1657,123 @@ class QuantMatmulOp(BasicOp):
         return y
 
 
-# class QuantGroupGemmReduceSumOp(BasicOp):
-#     def __init__(self, args_dict, backend, *args, **kwargs):
-#         super().__init__(args_dict, backend, *args, **kwargs)
+class QuantGroupGemmReduceSumOp(BasicOp):
+    def __init__(self, args_dict, backend, *args, **kwargs):
+        super().__init__(args_dict, backend, *args, **kwargs)
 
-#     def prepare(self):
-#         self.arg_type = self.args_dict["arg_type"]
-#         if not self.arg_type in ["llm"]:
-#             raise ValueError("QuantGroupGemmReduceSumOp only support llm arg_type")
+    def prepare(self):
+        self.arg_type = self.args_dict["arg_type"]
+        if not self.arg_type in ["llm"]:
+            raise ValueError("QuantGroupGemmReduceSumOp only support llm arg_type")
         
-#         self.dtype = self.args_dict["dtype"]
-#         if not self.dtype in ["int8", "float8"]:
-#             raise ValueError(f"QuantGroupGemmReduceSumOp only support int8, but got {self.dtype}")
-#         self.torch_dtype = get_torch_dtype(self.dtype)
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["int8", "float8"]:
+            raise ValueError(f"QuantGroupGemmReduceSumOp only support int8, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
 
-#         self.dst_dtype = self.args_dict["dst_dtype"]
-#         if not self.dst_dtype in ["bfloat16"]:
-#             raise ValueError(f"QuantGroupGemmReduceSumOp only support bfloat16 dst_dtype, but got {self.dst_dtype}")
-#         self.dst_torch_dtype = get_torch_dtype(self.dst_dtype)
+        self.dst_dtype = self.args_dict["dst_dtype"]
+        if not self.dst_dtype in ["bfloat16"]:
+            raise ValueError(f"QuantGroupGemmReduceSumOp only support bfloat16 dst_dtype, but got {self.dst_dtype}")
+        self.dst_torch_dtype = get_torch_dtype(self.dst_dtype)
 
-#         # pre-defined attrs
-#         self.sp_size = self.args_dict.get("sp_size", 1)
-#         self.num_tokens = self.args_dict["num_tokens"] // self.sp_size
-#         self.hidden_size = self.args_dict["hidden_size"]
-#         self.new_hidden_size = self.args_dict["new_hidden_size"]
-#         self.trans_w = self.args_dict.get("trans_w", False)
+        # pre-defined attrs
+        self.sp_size = self.args_dict.get("sp_size", 1)
+        self.num_tokens = self.args_dict["num_tokens"] // self.sp_size
+        self.hidden_size = self.args_dict["hidden_size"]
+        self.new_hidden_size = self.args_dict["new_hidden_size"]
+        self.trans_w = self.args_dict.get("trans_w", False)
 
-#         self.input_tensor_info = {
-#             "hidden_states": OpTensorInfo(
-#                 shape=[self.sp_size, self.num_tokens // self.sp_size, self.hidden_size], 
-#                 dtype=self.torch_dtype, 
-#                 device=self.backend.get_torch_device_name(),
-#                 creator=torch.zeros
-#             ), 
-#             "per_token_scale": OpTensorInfo(
-#                 shape=[], 
-#                 dtype=torch.float32, 
-#                 device=self.backend.get_torch_device_name(),
-#                 creator=torch.ones
-#             ), 
-#             "weight": OpTensorInfo(
-#                 shape=[self.sp_size, self.new_hidden_size, self.hidden_size] \
-#                     if self.trans_w else [self.hidden_size, self.new_hidden_size], 
-#                 dtype=self.torch_dtype, 
-#                 device=self.backend.get_torch_device_name(),
-#                 creator=torch.zeros
-#             ), 
-#         }
+        self.input_tensor_info = {
+            "hidden_states": OpTensorInfo(
+                shape=[self.sp_size, self.num_tokens, self.hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.zeros
+            ), 
+            "per_token_scale": OpTensorInfo(
+                shape=[self.sp_size, self.num_tokens], 
+                dtype=torch.float32, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.ones
+            ), 
+            "weight": OpTensorInfo(
+                shape=[self.sp_size, self.new_hidden_size, self.hidden_size] \
+                    if self.trans_w else [self.sp_size, self.hidden_size, self.new_hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.zeros
+            ), 
+            "weight_scale": OpTensorInfo(
+                shape=[self.sp_size, self.new_hidden_size], 
+                dtype=torch.float32, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.ones
+            ), 
+        }
+        self.output_tensor_info = {
+            "output": OpTensorInfo(
+                shape=[self.num_tokens, self.new_hidden_size], 
+                dtype=self.dst_torch_dtype, 
+                device=self.backend.get_torch_device_name()
+            ), 
+        }
+
+        # calculator
+        self.input_tensor_size = sum([
+            calc_tensor_size(info) for info in self.input_tensor_info.values()
+        ])
+        self.output_tensor_size = sum([
+            calc_tensor_size(info) for info in self.output_tensor_info.values()
+        ]) + calc_tensor_size(self.output_tensor_info["output"])
+        self.tensor_size = self.input_tensor_size + self.output_tensor_size
         
+        self.read_bytes = self.input_tensor_size
+        self.write_bytes = self.output_tensor_size
+        self.io_bytes = self.read_bytes + self.write_bytes
+
+        self.calc_flops = 2 * self.sp_size * self.num_tokens * self.new_hidden_size * self.hidden_size
+
+        # creator func
+        self._create_tensors_func = partial(
+            self._create_in_out_tensors, 
+            create_inputs=True, 
+            create_outputs=False
+        )
+
+        # run func
+        self._run_func = self.quant_group_gemm_reduce_sum_run
+
+    def quant_group_gemm_reduce_sum_run(self, tensor_mapping):
+        hidden_states = tensor_mapping["hidden_states"]
+        per_token_scale = tensor_mapping["per_token_scale"]
+        weight = tensor_mapping["weight"]
+        weight_scale = tensor_mapping["weight_scale"]
+
+        # quant group gemm
+        temp_tensor = torch.empty(
+            [self.sp_size, self.num_tokens, self.new_hidden_size], 
+            dtype=self.dst_torch_dtype, 
+            device=hidden_states.device
+        )
+
+        for sp_idx in range(self.sp_size):
+            cur_tokens = hidden_states[sp_idx]
+            cur_tokens_scale = per_token_scale[sp_idx]
+            cur_weight = weight[sp_idx]
+            cur_weight_scale = weight_scale[sp_idx]
+
+            temp_tensor[sp_idx] = fake_quant_gemm(
+                cur_tokens, cur_tokens_scale, 
+                cur_weight, cur_weight_scale, 
+                dst_torch_dtype=self.dst_torch_dtype, 
+                trans_w=self.trans_w,
+            )
+
+        # reduce sum
+        output = torch.sum(temp_tensor, dim=0, keepdim=False)
+
+        return output
+            
 
         
         
@@ -1738,8 +1807,7 @@ class MoeQuantGroupGemmOp(BasicOp):
 
 
         # predefined attrs
-        self.sp_size = self.args_dict.get("sp_size", 1)
-        self.num_tokens = self.args_dict["num_tokens"] // self.sp_size
+        self.num_tokens = self.args_dict["num_tokens"]
         self.hidden_size = self.args_dict["hidden_size"]
         self.new_hidden_size = self.args_dict["new_hidden_size"]
         self.trans_w = self.args_dict.get("trans_w", False)
@@ -1764,8 +1832,8 @@ class MoeQuantGroupGemmOp(BasicOp):
         self.used_src_tokens, \
         self.expert_dispatch_tokens, \
         self.expert_dispatch_weights, \
-        self.expert_dispatch_tokens_flatten, \
-        self.expert_dispatch_weights_flatten, \
+        self.scatter_token_id, \
+        self.scatter_token_weight, \
         self.expert_dispatch_token_count, \
         self.expert_dispatch_token_offset = get_moe_tokens_info(
             self.num_tokens, self.num_experts, self.topk, 
@@ -1780,17 +1848,17 @@ class MoeQuantGroupGemmOp(BasicOp):
                 device=self.backend.get_torch_device_name(),
                 creator=torch.zeros
             ), 
-            "per_token_scale": OpTensorInfo(
-                shape=[self.dispatch_tokens], 
-                dtype=torch.float32, 
-                device=self.backend.get_torch_device_name(),
-                creator=torch.ones
-            ), 
             "experts_weight": OpTensorInfo(
                 shape=[self.num_experts_per_rank, self.new_hidden_size, self.hidden_size] if self.trans_w else [self.num_experts_per_rank, self.hidden_size, self.new_hidden_size], 
                 dtype=self.torch_dtype, 
                 device=self.backend.get_torch_device_name(),
                 creator=torch.zeros
+            ), 
+            "per_token_scale": OpTensorInfo(
+                shape=[self.dispatch_tokens], 
+                dtype=torch.float32, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.ones
             ), 
             "experts_scale": OpTensorInfo(
                 shape=[self.num_experts_per_rank, self.new_hidden_size], 
@@ -1881,6 +1949,233 @@ class MoeQuantGroupGemmOp(BasicOp):
                 trans_w=self.trans_w
             )
         return y
+
+
+
+class MoeQuantGroupGemmCombineOp(BasicOp):
+    def __init__(self, args_dict, backend, *args, **kwargs):
+        super().__init__(args_dict, backend, *args, **kwargs)
+
+    def prepare(self):
+        self.arg_type = self.args_dict["arg_type"]
+        if not self.arg_type in ["llm"]:
+            raise ValueError
+        
+        # src_dtype
+        self.dtype = self.args_dict["dtype"]
+        if not self.dtype in ["int8", "float8"]:
+            raise ValueError(f"MoeQuantGroupGemmCombineOp only support int8, float8 dtype, but got {self.dtype}")
+        self.torch_dtype = get_torch_dtype(self.dtype)
+
+        # dst_dtype
+        self.dst_dtype = self.args_dict["dst_dtype"]
+        if not self.dst_dtype in ["bfloat16"]:
+            raise ValueError(f"MoeQuantGroupGemmCombineOp only support bfloat16 dst_dtype, but got {self.dst_dtype}")
+        self.dst_torch_dtype = get_torch_dtype(self.dst_dtype)
+
+        # predefined attrs
+        self.num_tokens = self.args_dict["num_tokens"]
+        self.hidden_size = self.args_dict["hidden_size"]
+        self.new_hidden_size = self.args_dict["new_hidden_size"]
+        self.trans_w = self.args_dict.get("trans_w", False)
+
+        # moe info
+        self.num_experts = self.args_dict["num_experts"]
+        self.topk = self.args_dict["topk"]
+
+        # parallel info
+        self.ep_size = self.args_dict.get("ep_size", 1)
+        self.ep_rank = self.args_dict.get("ep_rank", 0)
+
+
+        # resiual info
+        self.sp_size = self.args_dict.get("sp_size", None)
+        self.sp_rank = self.args_dict.get("sp_rank", 0)
+        self.res_scale = self.args_dict.get("res_scale", 1.0)
+        self.has_residual = True if self.sp_size is not None else False
+
+        self.num_res_tokens_per_rank = (self.num_tokens + self.sp_size - 1) // self.sp_size
+        self.res_token_start = self.sp_rank * self.num_res_tokens_per_rank
+        self.res_token_end = min(self.res_token_start + self.num_res_tokens_per_rank, self.num_tokens)
+
+
+        # get moe token disptch info
+        self.num_scatter_tokens, \
+        self.num_scatter_tokens_per_rank, \
+        self.num_experts_per_rank, \
+        self.experts_start_idx, \
+        self.experts_end_idx, \
+        self.all_select_experts, \
+        self.all_select_weights, \
+        self.dispatch_tokens, \
+        self.used_src_tokens, \
+        self.expert_dispatch_tokens, \
+        self.expert_dispatch_weights, \
+        self.scatter_token_id, \
+        self.scatter_token_weight, \
+        self.expert_dispatch_token_count, \
+        self.expert_dispatch_token_offset = get_moe_tokens_info(
+            self.num_tokens, self.num_experts, self.topk, 
+            ep_size=self.ep_size, ep_rank=self.ep_rank
+        )
+
+
+        # input/output tensors
+        self.input_tensor_info = {
+            "scatter_tokens": OpTensorInfo(
+                shape=[self.dispatch_tokens, self.hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(), 
+                creator=torch.zeros
+            ), 
+            "experts_weight": OpTensorInfo(
+                shape=[self.num_experts_per_rank, self.new_hidden_size, self.hidden_size] \
+                    if self.trans_w else [self.num_experts_per_rank, self.hidden_size, self.new_hidden_size], 
+                dtype=self.torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.zeros
+            ), 
+            "per_token_scale": OpTensorInfo(
+                shape=[self.dispatch_tokens], 
+                dtype=torch.float32, 
+                device=self.backend.get_torch_device_name(), 
+                creator=torch.ones
+            ), 
+            "experts_scale": OpTensorInfo(
+                shape=[self.num_experts_per_rank, self.new_hidden_size], 
+                dtype=torch.float32, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.ones
+            ), 
+            "experts_token_count": OpTensorInfo(
+                shape=[self.num_experts_per_rank], 
+                dtype=torch.int32, 
+                device=self.backend.get_torch_device_name(),
+                creator=lambda size, dtype, device: torch.tensor(
+                    self.expert_dispatch_token_count, dtype=dtype, device=device)
+            ), 
+            "experts_token_offset": OpTensorInfo(
+                shape=[self.num_experts_per_rank], 
+                dtype=torch.int32, 
+                device=self.backend.get_torch_device_name(),
+                creator=lambda size, dtype, device: torch.tensor(
+                    self.expert_dispatch_token_offset, dtype=dtype, device=device)
+            ), 
+            "scatter_token_id": OpTensorInfo(
+                shape=[self.dispatch_tokens], 
+                dtype=torch.int32, 
+                device=self.backend.get_torch_device_name(),
+                creator=lambda size, dtype, device: torch.tensor(
+                    self.scatter_token_id, 
+                    dtype=dtype, device=device)
+            ),
+            "scatter_token_weight": OpTensorInfo(
+                shape=[self.dispatch_tokens], 
+                dtype=torch.float32, 
+                device=self.backend.get_torch_device_name(),
+                creator=lambda size, dtype, device: torch.tensor(
+                    self.scatter_token_weight, 
+                    dtype=dtype, device=device)
+            ),
+        }
+        if self.has_residual:
+            self.input_tensor_info["residual_tokens"] = OpTensorInfo(
+                shape=[self.num_res_tokens_per_rank, self.new_hidden_size], 
+                dtype=self.dst_torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+            )
+
+        self.output_tensor_info = {
+            # init zero
+            "convergent_tokens": OpTensorInfo(
+                shape=[self.num_tokens, self.new_hidden_size], 
+                dtype=self.dst_torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+                creator=torch.zeros
+            ),
+        }
+
+
+
+
+        new_scatter_tokens_bytes = calc_tensor_size(
+            OpTensorInfo(
+                shape=[self.dispatch_tokens, self.new_hidden_size], 
+                dtype=self.dst_torch_dtype, 
+                device=self.backend.get_torch_device_name(),
+            )
+        )
+
+        # reserved memory
+        self.input_tensor_size = sum([calc_tensor_size(info) for info in self.input_tensor_info.values()]) + \
+            new_scatter_tokens_bytes
+        self.output_tensor_size = sum([calc_tensor_size(info) for info in self.output_tensor_info.values()])
+        self.tensor_size = self.input_tensor_size + self.output_tensor_size
+
+        # in out bytes
+        self.read_bytes = sum([calc_tensor_size(info) for info in self.input_tensor_info.values()])
+        self.read_bytes += new_scatter_tokens_bytes
+        self.write_bytes += new_scatter_tokens_bytes
+        self.io_bytes = self.read_bytes + self.write_bytes
+
+        # flops
+        self.calc_flops = 2 * self.dispatch_tokens * self.hidden_size * self.new_hidden_size
+
+        # creator func
+        self._create_tensors_func = partial(
+            self._create_in_out_tensors, 
+            create_inputs=True, 
+            create_outputs=True
+        )
+
+        self._run_func = self.moe_quant_group_gemm_combine_run
+
+    def moe_quant_group_gemm_combine_run(self, tensor_mapping):
+        scatter_tokens = tensor_mapping["scatter_tokens"]
+        experts_weight = tensor_mapping["experts_weight"]
+        per_token_scale = tensor_mapping["per_token_scale"]
+        experts_scale = tensor_mapping["experts_scale"]
+        experts_token_count = tensor_mapping["experts_token_count"]
+        experts_token_offset = tensor_mapping["experts_token_offset"]
+        scatter_token_id = tensor_mapping["scatter_token_id"]
+        scatter_token_weight = tensor_mapping["scatter_token_weight"]
+        
+        new_scatter_tokens = torch.empty(
+            size=[self.dispatch_tokens, self.new_hidden_size], 
+            dtype=self.dst_torch_dtype, 
+            device=self.backend.get_torch_device_name(),
+        )
+        for expert_idx in range(self.num_experts_per_rank):
+            cur_token_start = experts_token_offset[expert_idx]
+            cur_token_end = cur_token_start + experts_token_count[expert_idx]
+
+            cur_tokens = scatter_tokens[cur_token_start:cur_token_end]
+            cur_tokens_scale = per_token_scale[cur_token_start:cur_token_end]
+
+            cur_weight = experts_weight[expert_idx]
+            cur_weight_scale = experts_scale[expert_idx]
+
+            new_scatter_tokens[cur_token_start:cur_token_end] = fake_quant_gemm(
+                cur_tokens, cur_tokens_scale, 
+                cur_weight, cur_weight_scale, 
+                dst_torch_dtype=self.dst_torch_dtype,
+                trans_w=self.trans_w
+            )
+
+        residual_tokens = tensor_mapping.get("residual_tokens", None)
+        convergent_tokens = tensor_mapping["convergent_tokens"]
+        if residual_tokens is not None:
+            convergent_tokens[self.res_token_start:self.res_token_end] += residual_tokens
+
+        convergent_tokens.index_add_(
+            0, scatter_token_id, 
+            (new_scatter_tokens * scatter_token_weight.unsqueeze(-1)).to(self.dst_torch_dtype)
+        )
+
+        return convergent_tokens
+
+
+
 
 
 class MoeSoftmaxTopkOp(BasicOp):
@@ -2018,8 +2313,8 @@ class MoeScatterDynamicQuantOp(BasicOp):
         self.used_src_tokens, \
         self.expert_dispatch_tokens, \
         self.expert_dispatch_weights, \
-        self.expert_dispatch_tokens_flatten, \
-        self.expert_dispatch_weights_flatten, \
+        self.scatter_token_id, \
+        self.scatter_token_weight, \
         self.expert_dispatch_token_count, \
         self.expert_dispatch_token_offset = get_moe_tokens_info(
             self.num_tokens, self.num_experts, self.topk, 
@@ -2072,14 +2367,14 @@ class MoeScatterDynamicQuantOp(BasicOp):
                 dtype=torch.int32, 
                 device=self.backend.get_torch_device_name(),
                 creator=lambda size, dtype, device: torch.tensor(
-                    self.expert_dispatch_tokens_flatten, dtype=dtype, device=device)
+                    self.scatter_token_id, dtype=dtype, device=device)
             ), 
             "scatter_token_weight": OpTensorInfo(
                 shape=[self.dispatch_tokens], 
                 dtype=torch.float32, 
                 device=self.backend.get_torch_device_name(),
                 creator=lambda size, dtype, device: torch.tensor(
-                    self.expert_dispatch_weights_flatten, dtype=dtype, device=device)
+                    self.scatter_token_weight, dtype=dtype, device=device)
             ), 
             "experts_token_count": OpTensorInfo(
                 shape=[self.num_experts_per_rank], 
@@ -2205,8 +2500,8 @@ class MoeSwigluDynamicQuantOp(BasicOp):
         self.used_src_tokens, \
         self.expert_dispatch_tokens, \
         self.expert_dispatch_weights, \
-        self.expert_dispatch_tokens_flatten, \
-        self.expert_dispatch_weights_flatten, \
+        self.scatter_token_id, \
+        self.scatter_token_weight, \
         self.expert_dispatch_token_count, \
         self.expert_dispatch_token_offset = get_moe_tokens_info(
             self.num_tokens, self.num_experts, self.topk, 
@@ -2455,8 +2750,8 @@ class MoeGatherOp(BasicOp):
         self.used_src_tokens, \
         self.expert_dispatch_tokens, \
         self.expert_dispatch_weights, \
-        self.expert_dispatch_tokens_flatten, \
-        self.expert_dispatch_weights_flatten, \
+        self.scatter_token_id, \
+        self.scatter_token_weight, \
         self.expert_dispatch_token_count, \
         self.expert_dispatch_token_offset = get_moe_tokens_info(
             self.num_tokens, self.num_experts, self.topk, 
@@ -2475,7 +2770,7 @@ class MoeGatherOp(BasicOp):
                 dtype=torch.int32, 
                 device=self.backend.get_torch_device_name(),
                 creator=lambda size, dtype, device: torch.tensor(
-                    self.expert_dispatch_tokens_flatten, 
+                    self.scatter_token_id, 
                     dtype=dtype, device=device)
             ),
             "scatter_token_weight": OpTensorInfo(
@@ -2483,7 +2778,7 @@ class MoeGatherOp(BasicOp):
                 dtype=torch.float32, 
                 device=self.backend.get_torch_device_name(),
                 creator=lambda size, dtype, device: torch.tensor(
-                    self.expert_dispatch_weights_flatten, 
+                    self.scatter_token_weight, 
                     dtype=dtype, device=device)
             ),
         }
@@ -2509,15 +2804,11 @@ class MoeGatherOp(BasicOp):
         self.output_tensor_size = sum([calc_tensor_size(info) for info in self.output_tensor_info.values()])
         self.tensor_size = self.input_tensor_size + self.output_tensor_size
 
-        # read src + index_add dst
-        self.read_bytes = \
-            2 * calc_tensor_size(self.input_tensor_info["scatter_tokens"]) + \
-            calc_tensor_size(self.input_tensor_info["scatter_token_id"]) + \
-            calc_tensor_size(self.input_tensor_info["scatter_token_weight"])
-        if self.has_residual:
-            self.read_bytes += calc_tensor_size(self.input_tensor_info["residual_tokens"])
-        # index_add dst
-        self.write_bytes = calc_tensor_size(self.input_tensor_info["scatter_tokens"])
+
+        scatter_tokens_bytes = calc_tensor_size(self.input_tensor_info["scatter_tokens"])
+        self.read_bytes = sum([calc_tensor_size(info) for info in self.input_tensor_info.values()])
+        self.read_bytes += scatter_tokens_bytes
+        self.write_bytes = scatter_tokens_bytes
         self.io_bytes = self.read_bytes + self.write_bytes
 
         # creator func

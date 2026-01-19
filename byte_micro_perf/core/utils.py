@@ -384,7 +384,6 @@ def get_moe_tokens_info(
             if expert_idx >= experts_start_idx and expert_idx < experts_end_idx:
                 cur_token_dispatch_experts.append(expert_idx)
                 cur_token_dispatch_weights.append(expert_weight)
-        
         if cur_token_dispatch_experts:
             cur_rank_tokens[token_idx] = cur_token_dispatch_experts
             cur_rank_weights[token_idx] = cur_token_dispatch_weights
@@ -400,23 +399,20 @@ def get_moe_tokens_info(
     expert_dispatch_token_offset = [0 for _ in range(experts_start_idx, experts_end_idx)]
 
     for token_idx in cur_rank_tokens:
-        for topk_idx, expert_idx in enumerate(cur_rank_tokens[token_idx]):
+        for expert_idx, weight in zip(cur_rank_tokens[token_idx], cur_rank_weights[token_idx]):
             expert_dispatch_tokens[expert_idx - experts_start_idx].append(token_idx)
-            expert_dispatch_weights[expert_idx - experts_start_idx].append(cur_rank_weights[token_idx][topk_idx])
+            expert_dispatch_weights[expert_idx - experts_start_idx].append(weight)
             expert_dispatch_token_count[expert_idx - experts_start_idx] += 1
     expert_dispatch_token_offset = ([0] + list(itertools.accumulate(expert_dispatch_token_count)))[:num_experts_per_rank]
 
     
-    expert_dispatch_tokens_flatten = [token for tokens in expert_dispatch_tokens for token in tokens]
-    expert_dispatch_weights_flatten = [weight for weights in expert_dispatch_weights for weight in weights]
-
-
-    # for expert_idx, (tokens, weights, num_tokens, token_offset) in enumerate(zip(expert_dispatch_tokens, expert_dispatch_weights, expert_dispatch_token_count, expert_dispatch_token_offset)):
-    #     print(f"expert {expert_idx + experts_start_idx} dispatch tokens: {tokens}")
-    #     print(f"expert {expert_idx + experts_start_idx} dispatch weights: {weights}")
-    #     print(f"expert {expert_idx + experts_start_idx} dispatch token num: {num_tokens}")
-    #     print(f"expert {expert_idx + experts_start_idx} dispatch token offset: {token_offset}")
-    #     print("")
+    scatter_token_id = []
+    scatter_token_weight = []
+    for expert_idx, tokens in enumerate(expert_dispatch_tokens):
+        weights = expert_dispatch_weights[expert_idx]
+        for target_token, target_weight in zip(tokens, weights):
+            scatter_token_id.append(target_token)
+            scatter_token_weight.append(target_weight)
 
     return (
         num_scatter_tokens, 
@@ -431,8 +427,8 @@ def get_moe_tokens_info(
         used_src_tokens, 
         expert_dispatch_tokens, 
         expert_dispatch_weights, 
-        expert_dispatch_tokens_flatten, 
-        expert_dispatch_weights_flatten, 
+        scatter_token_id, 
+        scatter_token_weight, 
         expert_dispatch_token_count, 
         expert_dispatch_token_offset
     )
@@ -700,3 +696,22 @@ def static_quant(
     return quant_tokens
 
 
+if __name__ == "__main__":
+    num_scatter_tokens, \
+    num_scatter_tokens_per_rank, \
+    num_experts_per_rank, \
+    experts_start_idx, \
+    experts_end_idx, \
+    all_select_experts, \
+    all_select_weights, \
+    dispatch_tokens, \
+    used_src_tokens, \
+    expert_dispatch_tokens, \
+    expert_dispatch_weights, \
+    expert_dispatch_tokens_flatten, \
+    expert_dispatch_weights_flatten, \
+    expert_dispatch_token_count, \
+    expert_dispatch_token_offset = \
+        get_moe_tokens_info(64, 128, 6, 8, 0)
+
+    
