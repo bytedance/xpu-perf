@@ -285,9 +285,14 @@ class PerfEngine:
         return model_info
 
     def get_cpu_name(self):
-        command = "lscpu | grep 'Model name' | awk -F: '{print $2}'"
-        cpu_name = subprocess.check_output(command, shell=True)
-        return cpu_name.decode().strip()
+        try:
+            lscpu_output = subprocess.check_output(["lscpu"], text=True)
+            for line in lscpu_output.split('\n'):
+                if 'Model name' in line:
+                    return line.split(':')[1].strip()
+        except subprocess.CalledProcessError as e:
+            print(f"Command failed: {e}")
+            return None
 
     def check_interact_info(
             self, pre_compile_config: Dict[str, Dict]) -> Dict[str, Any]:

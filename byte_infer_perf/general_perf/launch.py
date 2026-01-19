@@ -75,12 +75,13 @@ def main():
             subprocess.call([
                 'bash', 'general_perf/backends/CPU/calculate_cpu_diff.sh',
                 workload['model'],
-                str(workload['batch_sizes'][0])
+                str(workload['batch_sizes'][0]),
+                str(parsed_args.hardware_type)
             ])
 
         cmd = f'python3 general_perf/core/perf_engine.py --hardware_type {parsed_args.hardware_type} --task {parsed_args.task}'
         if parsed_args.compile_only:
-            cmd += '--compile_only'
+            cmd += ' --compile_only'
         exit_code = subprocess.call(cmd, shell=True)
         sys.exit(exit_code)
 
