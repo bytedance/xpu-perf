@@ -374,7 +374,7 @@ class Backend(ABC):
         tensor_size = op_instance.tensor_size
 
         # device
-        device_mem_info = self.get_mem_info()
+        device_mem_info = self.get_mem_info(self.true_device_index)
         avail_memory = device_mem_info[0]
 
         # assume
