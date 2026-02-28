@@ -60,7 +60,7 @@ class CoreInferencer(ABC):
             self.generate_ids.append(res.token_id)
             self.result_queue.put(res)
 
-        async def get_result(self) -> GenerateRequest:
+        async def get_result(self) -> GenerateResult:
             return await self.result_queue.get()
         
         def finish(self) -> None:
