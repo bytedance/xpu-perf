@@ -1,0 +1,52 @@
+[
+  
+  {
+    "name": "model_precision",
+    "default": "FP32",
+    "depends": null,
+    "note" : "选择数据格式",
+    "type": "string",
+    "options":["F32", "INT8", "F16"],
+    "dialog_type": "Radiolist Dialog"
+  },
+  {
+    "name": "dataset_path",
+    "default": "ILSVRC2012_img_val",
+    "depends": null,
+    "note" : "量化数据集路径",
+    "type": "string",
+    "dialog_type": "Input Dialog"
+  },
+  {
+    "name": "mean",
+    "default": "103.53,116.28,123.67",
+    "depends": null,
+    "note" : "前处理均值",
+    "type": "string",
+    "dialog_type": "Input Dialog"
+  },
+  {
+    "name": "scale",
+    "default": "0.01742919,0.017507,0.01712475",
+    "depends": null,
+    "note" : "前处理比例",
+    "type": "string",
+    "dialog_type": "Input Dialog"
+  },
+  {
+    "name": "pixel_format",
+    "default": "rgb",
+    "depends": null,
+    "note" : "前处理像素格式",
+    "type": "string",
+    "dialog_type": "Input Dialog"
+  },
+  {
+    "name": "input_num",
+    "default": "200",
+    "depends": null,
+    "note" : "量化数据集数量",
+    "type": "int",
+    "dialog_type": "Input Dialog"
+  }
+]
