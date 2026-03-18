@@ -1,0 +1,15 @@
+{
+    "moe_scatter_dynamic_quant": [
+        {
+            "arg_type": "llm", 
+            "dtype.dst_dtype": [
+                ["bfloat16", "int8"]
+            ],
+            "num_experts.topk.ep_size": [
+                [128, 8, 8]
+            ], 
+            "num_tokens": 10240,
+            "hidden_size": 4096
+        }
+    ]
+}

@@ -1,0 +1,34 @@
+{
+    "moe_gather": [
+        {
+            "arg_type": "llm", 
+            "dtype": "bfloat16",
+            "num_experts.topk.ep_size": [
+                [128, 8, 8]
+            ], 
+            "sp_size.num_tokens": [
+                [1, 10240], 
+                [8, 10240]
+            ], 
+            "hidden_size": 1536
+        }
+    ], 
+    "moe_quant_group_gemm_combine": [
+        {
+            "arg_type": "llm", 
+            "dtype.w_dtype.compute_dtype.dst_dtype": [
+                ["int8", "int8", "int8", "bfloat16"]
+            ], 
+            "num_experts.topk.ep_size": [
+                [128, 8, 8]
+            ], 
+            "sp_size.num_tokens": [
+                [1, 10240], 
+                [8, 10240]
+            ], 
+            "hidden_size.new_hidden_size": [
+                [1536, 4096]
+            ]
+        }
+    ]
+}

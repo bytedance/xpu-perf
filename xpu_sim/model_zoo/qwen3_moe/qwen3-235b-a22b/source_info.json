@@ -1,0 +1,5 @@
+{
+    "model_name": "qwen3-235b-a22b", 
+    "hf_repo_name": "Qwen/Qwen3-235B-A22B",
+    "hf_repo_url": "https://huggingface.co/Qwen/Qwen3-235B-A22B"
+}

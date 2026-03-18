@@ -1,0 +1,30 @@
+{
+    "base_model_name": "qwen3_dense", 
+    "model_name": "qwen3-32b", 
+    "infer_dtype": "gemm{w8a8}_fa{c8}", 
+    "dtype_config": {
+        "default_dtype": "bfloat16", 
+        "qkvo": {
+            "dtype": "int8", 
+            "w_dtype": "int8", 
+            "compute_dtype": "int8"
+        }, 
+        "attn": {
+            "dtype": "bfloat16", 
+            "cache_dtype": "int8", 
+            "qk_compute_dtype": "bfloat16", 
+            "pv_compute_dtype": "bfloat16"
+        }, 
+        "mlp": {
+            "dtype": "int8", 
+            "w_dtype": "int8", 
+            "compute_dtype": "int8"
+        }
+    }, 
+    "parallel_config": {
+        "device_num": 8, 
+        "tp_size": 8
+    }, 
+    "extra_config": {}, 
+    "template": "./tp.py"
+}

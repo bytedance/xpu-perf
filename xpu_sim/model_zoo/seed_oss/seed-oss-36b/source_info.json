@@ -1,0 +1,5 @@
+{
+    "model_name": "seed-oss-36b", 
+    "hf_repo_name": "ByteDance-Seed/Seed-OSS-36B-Instruct", 
+    "hf_repo_url": "https://huggingface.co/ByteDance-Seed/Seed-OSS-36B-Instruct"
+}

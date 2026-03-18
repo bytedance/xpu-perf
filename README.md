@@ -1,41 +1,52 @@
-<div align="center">
-  <img src="docs/images/icon.png">
-</div>
+# xpu-perf
+
+## 项目目标
+
+最终目标是打通`芯片厂商 --> ai infra engine层 --> ai infra serving层 --> 业务层`由下到上的整条技术链路，制定更加合理、专业的评估方法论和评估工具，消除层间的信息隔离，优化价值判断以找到最核心的指标需求，最终实现`以最低的TCO成本提供更高的业务服务性能`。
+
+为达成上述目标，我们拆解了以下需求：
+
+1. 深入芯片底层架构研究、机型研究、互联拓扑研究，探索未来架构设计方向。
+
+2. 提供芯片本身评测能力，包括精度、指令吞吐、SDC等领域。
+
+3. 定义基础算子、特定应用场景（llm、dit等）专用算子，并提供高效的算子测试框架，用于评估衡量特定芯片、特定软件栈、特定算子库的综合性能表现，得到每个核心算子的MFU（算力利用率）、MBU（内存带宽利用率）、CBU（通信带宽利用率）。
+
+4. 基于算子测试框架提供特定应用场景的性能仿真工具（llm、dit等），快速得到接近实际部署的性能数据，比如在分布式LLM模型推理中PD分离性能。
+
+5. 提供特定应用场景（llm推理、llm训练、dit推理等）的实测要求，衡量具体部署下的实际性能表现，比如特性芯片、特定模型、特定部署形态（并行方式+精度）、特定框架（比如vllm、sglang）上的prefill/decode性能。
+
+6. 提供业务视角的性能指标，提供具体业务场景的trace_gen能力，以评估具体部署形态下在特定业务场景下的实际性能表现。
 
 
-# ByteMLPerf Benchmark Tool
-ByteMLPerf is an AI Accelerator Benchmark that focuses on evaluating AI Accelerators from practical production perspective, including the ease of use and versatility of software and hardware. Byte MLPerf has the following characteristics:
-- Models and runtime environments are more closely aligned with practical business use cases.
-- For ASIC hardware evaluation, besides evaluate performance and accuracy, it also measure metrics like compiler usability and coverage.
-- Performance and accuracy results obtained from testing on the open Model Zoo serve as reference metrics for evaluating ASIC hardware integration.
+## 子项目
 
-## Category
-The ByteMLPerf benchmark is structured into three main categories: Inference, Training, and Micro, each targeting different aspects of AI accelerator performance:
+### [micro_perf](./micro_perf/)
+算子测试框架。
 
-- Inference: This category is subdivided into two distinct sections to cater to different types of models:
+### [xpu_sim](./xpu_sim/)
+基于算子测试框架的模型端到端性能和breakdown性能仿真工具。
 
-  - General Performance: This section is dedicated to evaluating the inference capabilities of accelerators using common models such as ResNet-50 and BERT. It aims to provide a broad understanding of the accelerator's performance across a range of typical tasks. Vendors can refer to this document for guidance on building general perf backend: [ByteMLPerf General Perf Guide](https://bytedance.us.feishu.cn/docx/L98Mdw3J6obMtJxeRBzuHeRbsof) [[中文版](https://bytedance.feishu.cn/docs/doccno9eLS3OseTA5aMBeeQf2cf#TDK8of)]
+### [trace_gen](./trace_gen/)
+独立的llm模型推理的请求生成工具。
 
-  - Large Language Model (LLM) Performance: Specifically designed to assess the capabilities of accelerators in handling large language models, this section addresses the unique challenges posed by the size and complexity of these models. Vendors can refer to this document for guidance on building llm perf backend: [ByteMLPerf LLM Perf Guide](https://bytedance.larkoffice.com/docx/ZoU7dkPXYoKtJtxlrRMcNGMwnTc) [[中文版](https://bytedance.larkoffice.com/docx/ZoU7dkPXYoKtJtxlrRMcNGMwnTc)]
+### [(old) infer_perf](./infer_perf/)
+原有的小模型、llm模型测试框架，已过时，正在调整中，未来将聚焦成熟推理框架（vllm、sglang）的bench能力。
 
-- Micro: The Micro category focuses on the performance of specific operations or "ops" that are fundamental to AI computations, such as Gemm, Softmax, and various communication operations. This granular level of testing is crucial for understanding the capabilities and limitations of accelerators at a more detailed operational level. Vendors can refer to this document for guidance on building micro perf backend: [ByteMLPerf Micro Perf Guide](https://bytedance.us.larkoffice.com/docx/EpjFdSpRsoOIHWxtKgjuRsMPsFB)[[中文版](https://bytedance.us.larkoffice.com/docx/LJWvdGVAzoxXkTxF9h9uIETbsWc)]
+### [train_perf](./train_perf)
+llm模型训练评估工程。
 
-- Training: Currently under development, this category aims to evaluate the performance of AI accelerators in training scenarios. It will provide insights into how well accelerators can handle the computationally intensive process of training AI models, which is vital for the development of new and more advanced AI systems.
 
-Vendors looking to evaluate and improve their AI accelerators can utilize the ByteMLPerf benchmark as a comprehensive guide. The benchmark not only offers a detailed framework for performance and accuracy evaluation but also includes considerations for compiler usability and coverage for ASIC hardware, ensuring a holistic assessment approach.
 
-For more details, you can visit our offical website here: [bytemlperf.ai](https://bytemlperf.ai/)
-
-## Vendor List
-ByteMLPerf Vendor Backend List will be shown below
-
-| Vendor | SKU | Key Parameters | Inference(General Perf) | Inference(LLM Perf) |
-| :---- | :----| :---- | :---- | :---- |
-| Intel | Xeon | - | - | - |
-| Stream Computing | STC P920 | <li>Computation Power:128 TFLOPS@FP16 <li> Last Level Buffer: 8MB, 256GB/s <li>Level 1 Buffer: 1.25MB, 512GB/s   <li> Memory: 16GB, 119.4GB/S <li> Host Interface：PCIe 4, 16x, 32GB/s <li> TDP: 160W | [STC Introduction](byte_infer_perf/general_perf/backends/STC/README.md) | - |
-| Graphcore | Graphcore® C600 | <li>Compute: 280 TFLOPS@FP16, 560 TFLOPS@FP8 <li> In Processor Memory: 900 MB, 52 TB/s <li> Host Interface: Dual PCIe Gen4 8-lane interfaces, 32GB/s <li> TDP: 185W | [IPU Introduction](byte_infer_perf/general_perf/backends/IPU/README.md) | - |
-| Moffett-AI | Moffett-AI S30 | <li>Compute: 1440 (32x-Sparse) TFLOPS@BF16, 2880 (32x-Sparse) TOPS@INT8, <li> Memory: 60 GB,  <li> Host Interface: Dual PCIe Gen4 8-lane interfaces, 32GB/s <li> TDP: 250W | [SPU Introduction](byte_infer_perf/general_perf/backends/SPU/README.md) | - |
-| Habana | Gaudi2 | <li>24 Tensor Processor Cores, Dual matrix multiplication engines <li> Memory: 96 GB HBM2E, 48MB SRAM | [HPU Introduction](byte_infer_perf/general_perf/backends/HPU/README.md) | - |
-
-## Statement
-[ASF Statement on Compliance with US Export Regulations and Entity List](https://news.apache.org/foundation/entry/statement-by-the-apache-software)
+## 引用
+**If you use this code or find our work valuable, please cite:**
+```bibtex
+@inproceedings{cai2026characterizing,
+  title={Characterizing Cloud-Native LLM Inference at Bytedance and Exposing Optimization Challenges and Opportunities for Future AI Accelerators},
+  author={Cai, Jingwei and Kong, Dehao and Huang, Hantao and Jiang, Zishan and Ma, Zixuan and Guo, Qingyu and Zhang, Zhenxing and Shi, Guiming and Gao, Mingyu and Ma, Kaisheng and others},
+  booktitle={2026 IEEE International Symposium on High Performance Computer Architecture (HPCA)},
+  pages={1--19},
+  year={2026},
+  organization={IEEE}
+}
+```

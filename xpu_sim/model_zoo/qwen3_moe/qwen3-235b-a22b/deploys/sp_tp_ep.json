@@ -1,0 +1,36 @@
+{
+    "base_model_name": "qwen3_moe", 
+    "model_name": "qwen3-235b-a22b", 
+    "infer_dtype": "gemm{w8a8}_fa{c8}", 
+    "dtype_config": {
+        "default_dtype": "bfloat16", 
+        "qkvo": {
+            "dtype": "int8", 
+            "w_dtype": "int8", 
+            "compute_dtype": "int8"
+        }, 
+        "attn": {
+            "dtype": "bfloat16", 
+            "cache_dtype": "int8", 
+            "qk_compute_dtype": "bfloat16", 
+            "pv_compute_dtype": "bfloat16"
+        }, 
+        "gating": {
+            "dtype": "float32", 
+            "compute_dtype": "float32"
+        }, 
+        "mlp": {
+            "dtype": "int8", 
+            "w_dtype": "int8", 
+            "compute_dtype": "int8"
+        }
+    }, 
+    "parallel_config": {
+        "device_num": 8, 
+        "sp_size": 8, 
+        "tp_size": 8, 
+        "ep_size": 8
+    }, 
+    "extra_config": {}, 
+    "template": "./sp_tp_ep.py"
+}

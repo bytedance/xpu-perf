@@ -1,0 +1,48 @@
+{
+    "moe_gating_gemm": [
+        {
+            "arg_type": "llm", 
+            "dtype.compute_dtype.dst_dtype": [
+                ["float32", "float32", "float32"]
+            ], 
+            "sp_size.hidden_size.num_experts": [
+                [1, 8192, 128]
+            ], 
+            "num_tokens": [
+                8192
+            ]
+        }
+    ], 
+    "quant_matmul": [
+        {
+            "arg_type": "llm", 
+            "dtype.w_dtype.compute_dtype.dst_dtype": [
+                ["int8", "int8", "int8", "bfloat16"]
+            ], 
+            "sp_size.hidden_size.new_hidden_size": [
+                [1, 8192, 8192]
+            ], 
+            "num_tokens": [
+                48, 8192
+            ]
+        }
+    ],
+    "moe_quant_group_gemm": [
+        {
+            "arg_type": "llm", 
+            "dtype.w_dtype.compute_dtype.dst_dtype": [
+                ["int8", "int8", "int8", "bfloat16"], 
+                ["int8", "int4", "int8", "bfloat16"]
+            ], 
+            "ep_size.num_experts.topk": [
+                [8, 128, 8]
+            ], 
+            "sp_size.hidden_size.new_hidden_size": [
+                [1, 8192, 8192]
+            ], 
+            "num_tokens": [
+                48, 8192
+            ]
+        }
+    ]
+}

@@ -1,0 +1,15 @@
+{
+    "base_model_name": "seed_oss", 
+    "model_name": "seed-oss-36b", 
+    "infer_dtype": "bfloat16", 
+    "dtype_config": {
+        "default_dtype": "bfloat16"
+    }, 
+    "parallel_config": {
+        "device_num": 1
+    }, 
+    "extra_config": {
+        
+    }, 
+    "template": "./eager.py"
+}
