@@ -180,9 +180,15 @@ class BackendGPU(Backend):
 
                     removed_keys = []
                     for kernel in kernel_latency_list:
-                        if len(kernel_latency_list[kernel]) != prefer_iterations:
+                        count = len(kernel_latency_list[kernel])
+                        if count % prefer_iterations != 0:
+                            # inconsistent call count across iterations, discard
                             removed_keys.append(kernel)
-                        average_latency += sum(kernel_latency_list[kernel][iters_offset:])
+                        else:
+                            # support N kernel calls per core_run() (e.g. group-gemm loops)
+                            calls_per_iter = count // prefer_iterations
+                            offset = calls_per_iter * iters_offset
+                            average_latency += sum(kernel_latency_list[kernel][offset:])
                     for kernel in removed_keys:
                         kernel_latency_list.pop(kernel)
 
