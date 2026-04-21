@@ -104,7 +104,7 @@ class BasicOp:
 
         # preset info
         self.is_concurrent = False
-        self.require_profiling = False
+        self.require_profiling = True
         self.extra_providers = []
 
         # 1. parse arguments
