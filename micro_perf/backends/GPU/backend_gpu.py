@@ -36,28 +36,28 @@ class BackendGPU(Backend):
     def get_backend_info(self):
         info_dict = {}
 
-        # device相关
         info_dict["device_name"] = torch.cuda.get_device_name(0)
         info_dict["device_count"] = torch.cuda.device_count()
 
         device_properties = torch.cuda.get_device_properties(0)
         info_dict["device_memory_mb"] = device_properties.total_memory / (1024 ** 2)
-        
-
 
         __torch_version = torch.__version__
         __cuda_version = torch.version.cuda
         __driver_version = ''
-        nvidia_smi_output = subprocess.run(
-            ['nvidia-smi', '-q', '-i', '0'], 
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        for line in nvidia_smi_output.stdout.split('\n'):
-            if 'Driver Version' in line:
-                __driver_version = line.split(':')[1].strip()
-                break
+        try:
+            nvidia_smi_output = subprocess.run(
+                ['nvidia-smi', '-q', '-i', '0'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            for line in nvidia_smi_output.stdout.split('\n'):
+                if 'Driver Version' in line:
+                    __driver_version = line.split(':')[1].strip()
+                    break
+        except FileNotFoundError:
+            pass
 
         info_dict["torch_version"] = __torch_version
         info_dict["torch_cuda_version"] = __cuda_version
@@ -75,9 +75,6 @@ class BackendGPU(Backend):
         PROFILER_DIR = pathlib.Path.cwd().joinpath("profiling")
         if PROFILER_DIR.exists():
             shutil.rmtree(PROFILER_DIR)
-
-        
-
 
 
     """
@@ -114,9 +111,6 @@ class BackendGPU(Backend):
 
     def empty_cache(self):
         torch.cuda.empty_cache()
-
-
-
 
 
     """
