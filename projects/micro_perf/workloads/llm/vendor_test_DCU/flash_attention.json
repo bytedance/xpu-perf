@@ -1,0 +1,25 @@
+{
+    "flash_attention": [
+        {
+            "arg_type": "llm",
+            "attn_mode": "prefill",
+            "dtype.cache_dtype.qk_compute_dtype.pv_compute_dtype.dst_dtype": [
+                ["bfloat16", "bfloat16", "bfloat16", "bfloat16", "bfloat16"]
+            ],
+            "q_head_num.kv_head_num.head_dim": [
+                [64, 8, 128],
+                [32, 4, 128],
+                [16, 2, 128],
+                [8, 1, 128]
+            ],
+            "block_size": 0,
+            "batch_size.cache_len": [
+                [1, 0]
+            ],
+            "q_len": [
+                128, 256, 512, 768, 1024, 2048, 4096, 6192, 8192, 10240, 12288, 14336, 16384, 18432,
+                20480, 22528, 24576, 26624, 28672, 30720, 32768
+            ]
+        }
+    ]
+}
