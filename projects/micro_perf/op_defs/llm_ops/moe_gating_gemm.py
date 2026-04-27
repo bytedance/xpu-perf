@@ -20,7 +20,7 @@ class MoeGatingGemmOp(BasicOp):
         # 以下参数决定当前 moe_gating_gemm 的具体数据类型
         self.dtype = self.args_dict.get("dtype", "float32")
         self.compute_dtype = self.args_dict.get("compute_dtype", "float32")
-        self.dst_dtype = self.args_dict.get("dtype", "float32")
+        self.dst_dtype = self.args_dict.get("dst_dtype", self.dtype)
 
     def vendor_parser(self):
         if self.dtype == "float32" and self.compute_dtype == "float32" and self.dst_dtype == "float32":

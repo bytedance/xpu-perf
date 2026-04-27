@@ -8,6 +8,8 @@ from functools import partial
 
 import torch.multiprocessing as mp
 
+FILE_DIR = pathlib.Path(__file__).parent.absolute()
+
 from xpu_perf.micro_perf.core.perf_engine import XpuPerfServer
 from xpu_perf.micro_perf.core.common_utils import logger, setup_logger
 from xpu_perf.micro_perf.core.common_utils import get_submodules, existing_dir_path, valid_file
@@ -15,7 +17,6 @@ from xpu_perf.micro_perf.core.common_utils import get_submodules, existing_dir_p
 from flask import Flask, request, jsonify, Response, stream_with_context
 
 
-FILE_DIR = pathlib.Path(__file__).parent.absolute()
 BYTE_MLPERF_ROOT = FILE_DIR
 OP_DEFS_DIR = BYTE_MLPERF_ROOT.joinpath("op_defs")
 

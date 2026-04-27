@@ -4,13 +4,14 @@ from functools import partial
 
 import torch.multiprocessing as mp
 
+FILE_DIR = pathlib.Path(__file__).parent.absolute()
+
 from xpu_perf.micro_perf.core.perf_engine import XpuPerfServer
 from xpu_perf.micro_perf.core.common_utils import logger, setup_logger
 from xpu_perf.micro_perf.core.common_utils import get_submodules, existing_dir_path, valid_file
 from xpu_perf.micro_perf.core.common_utils import parse_tasks, parse_workload, export_reports
 
 
-FILE_DIR = pathlib.Path(__file__).parent.absolute()
 BYTE_MLPERF_ROOT = FILE_DIR
 OP_DEFS_DIR = BYTE_MLPERF_ROOT.joinpath("op_defs")
 
