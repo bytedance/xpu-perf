@@ -77,6 +77,9 @@ OP_ZOO = {
     "moe_gating_gemm": num_tokens_set_template, 
     "quant_matmul": num_tokens_set_template, 
     "moe_quant_group_gemm": num_tokens_set_template, 
+    # Compatibility split-ops for DCU/lightop tp-ep templates.
+    "moe_quant_group_gemm_up": num_tokens_set_template,
+    "moe_quant_group_gemm_down": num_tokens_set_template,
     "moe_quant_group_gemm_combine": num_tokens_set_template, 
     "quant_group_gemm_reduce_sum": num_tokens_set_template, 
 

@@ -233,7 +233,7 @@ class DistributionInfo:
 """
 @dataclass
 class BenchTestCase:
-    ALLOWED_KEYS: ClassVar[[Tuple[str, ...]]] = (
+    ALLOWED_KEYS: ClassVar[Tuple[str, ...]] = (
         "batch_size", 
         "cache_len", 
         "q_len", 
