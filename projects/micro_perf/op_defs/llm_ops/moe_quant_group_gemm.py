@@ -133,7 +133,12 @@ class MoeQuantGroupGemmOp(BasicOp):
         ])
         self.tensor_size = self.input_tensor_size + self.output_tensor_size
 
-        self.read_bytes = self.input_tensor_size
+        # Subtract weight/scale bytes for inactive experts (no tokens dispatched)
+        inactive = self.num_experts_per_rank - sum(1 for c in self.expert_dispatch_token_count if c > 0)
+        inactive_bytes = inactive * self.new_hidden_size * (
+            self.hidden_size * self.input_tensor_info["experts_weight"].dtype.itemsize
+            + self.input_tensor_info["experts_scale"].dtype.itemsize)
+        self.read_bytes = self.input_tensor_size - inactive_bytes
         self.write_bytes = self.output_tensor_size
         self.io_bytes = self.read_bytes + self.write_bytes
 

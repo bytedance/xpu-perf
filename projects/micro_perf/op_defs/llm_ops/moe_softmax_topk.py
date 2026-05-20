@@ -52,7 +52,7 @@ class MoeSoftmaxTopkOp(BasicOp):
         self.output_tensor_info = {
             "selected_experts": OpTensorInfo(
                 shape=[self.num_tokens, self.topk], 
-                dtype=self.torch_dtype, 
+                dtype=torch.int32,
                 device=self.backend.get_torch_device_name(),
             ), 
             "moe_weights": OpTensorInfo(

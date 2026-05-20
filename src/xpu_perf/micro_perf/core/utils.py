@@ -625,7 +625,7 @@ def smooth_per_token_dynamic_quant(
     per_token_scale = per_token_max * max_dtype_val
 
     # [num_tokens, hidden_size], quantized
-    quant_tokens_fp32 = torch.mul(smooth_scale, per_token_scale).clamp(-max_dtype_val, max_dtype_val)
+    quant_tokens_fp32 = torch.mul(smoothed_input, per_token_scale).clamp(-max_dtype_val, max_dtype_val)
     if dst_torch_dtype == torch.int8:
         quant_tokens_fp32 = quant_tokens_fp32.round()
 
