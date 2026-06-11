@@ -379,7 +379,7 @@ class XpuPerfSimEngine:
                 perf = self.fix_data_dict[(bs, cl, ql)]["perf_info"]
                 stage_latency = round(perf["total_latency"], 3)
                 kernel_latency = round(perf["total_node_latency"], 3)
-                e2e_latency = round(stage_latency * self.dist_info.pp_size, 3)
+                e2e_latency = round(stage_latency * self.num_layers * self.dist_info.pp_size, 3)
                 lw.writerow(
                     {
                         "batch_size": bs,
@@ -784,7 +784,7 @@ class XpuPerfSimEngine:
 
 
         # 获取 bench_mode
-        self.run_mode = kwargs.get("run_mode", "prefill")
+        self.run_mode = kwargs.get("run_mode", self.run_mode)
         self.ori_num_layers = self.model_config.num_layers[0]
         self.test_num_layers = self.ori_num_layers
         num_layers = self.ori_num_layers
